@@ -1,25 +1,20 @@
-"""Configuration
+"""Configuration.
 
 This module provides the validated configuration structures and custom validators
 used throughout the synthBOLD package to parse and ensure data synthesis parameters
 are correct.
 """
 
-from pydantic import BaseModel, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 __all__ = ["Range", "Config"]
 
 
 class Range(BaseModel):
-    """Defines a numerical range.
+    """Defines a numerical range."""
 
-    Attributes:
-        min: The minimum value of the range.
-        max: The maximum value of the range.
-    """
-
-    min: float
-    max: float
+    min: float = Field(description="The minimum value of the range.")
+    max: float = Field(description="The maximum value of the range.")
 
     @field_validator("max")
     @classmethod

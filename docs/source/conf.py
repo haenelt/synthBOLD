@@ -48,5 +48,11 @@ html_theme_options = {
     "navigation_with_keys": False,  # remove UI hints to keep clean
 }
 
+# -- Options for autodoc_pydantic --------------------------------------------
+autodoc_pydantic_model_show_json = False
+autodoc_pydantic_model_show_config_summary = False
+autodoc_pydantic_field_list_validators = False
+autodoc_pydantic_field_show_alias = False
+
 html_static_path = ["_static"]
 html_css_files = ["academic.css"]  # custom styles
