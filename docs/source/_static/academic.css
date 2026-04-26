@@ -1,0 +1,40 @@
+/* Body text */
+body {
+    font-family: "Merriweather", Georgia, serif;
+    font-weight: 400;   /* normal weight */
+    line-height: 1.6;
+    color: #111;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+    font-family: "Lora", "Palatino Linotype", serif;
+    font-weight: 500;   /* slightly bolder than body */
+    color: #222;
+}
+
+/* Code blocks */
+.highlight pre {
+    font-family: "Courier New", monospace;
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+/* Admonitions (notes, warnings) */
+.admonition {
+    background-color: #f4f4f4;
+    border-left: 4px solid #999999;
+    padding: 0.6em 1em;
+}
+
+/* Tables */
+table {
+    border-collapse: collapse;
+    margin: 1em 0;
+}
+
+
+th, td {
+    border: 1px solid #999;
+    padding: 0.3em 0.6em;
+}

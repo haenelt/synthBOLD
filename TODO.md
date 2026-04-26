@@ -1,0 +1,7 @@
+- awesome configuration file that can be set from yaml or something else (pydantic plus pyyaml)
+- [ ] 2D, 3D, 4D
+- [ ] add TE dimension
+- [ ] add temporal dimension: BOLD time courses (hrf, autocorrelation, global signal changes, noise)
+- [ ] include more shapes: spheres, toroids, triangles, squares
+- [ ] include ways for visualization (e.g. mesh representation, maximum/minimum intensity projection)
+- [ ] real and complex data
