@@ -3,14 +3,14 @@ body {
     font-family: "Merriweather", Georgia, serif;
     font-weight: 400;   /* normal weight */
     line-height: 1.6;
-    color: #111;
+    color: var(--color-foreground-primary);
 }
 
 /* Headings */
 h1, h2, h3, h4, h5, h6 {
     font-family: "Lora", "Palatino Linotype", serif;
     font-weight: 500;   /* slightly bolder than body */
-    color: #222;
+    color: var(--color-foreground-primary);
 }
 
 /* Code blocks */
@@ -22,8 +22,8 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Admonitions (notes, warnings) */
 .admonition {
-    background-color: #f4f4f4;
-    border-left: 4px solid #999999;
+    background-color: var(--color-admonition-background, #f4f4f4);
+    border-left: 4px solid var(--color-admonition-title-background, #999999);
     padding: 0.6em 1em;
 }
 
