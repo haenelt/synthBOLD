@@ -46,4 +46,4 @@ test: ## run test suite
 	uv run pytest
 
 build-docs: ## build sphinx documentation
-	sphinx-build -b html docs/source/ docs/build/
+	uv run sphinx-build -b html docs/source/ docs/build/

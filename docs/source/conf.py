@@ -22,6 +22,7 @@ extensions: list[str] = [
     "sphinx.ext.mathjax",  # clean math rendering
     "sphinx.ext.autodoc",  # if you want to document Python API
     "sphinx.ext.napoleon",  # support Google / NumPy style docstrings
+    "sphinxcontrib.autodoc_pydantic",  # to avoid clahses with pydantic
 ]
 
 templates_path: list[str] = ["_templates"]
