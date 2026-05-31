@@ -8,6 +8,10 @@ import torch
 from synthbold.base import Pipeline, RandomGeneratorMixin, Transform
 from synthbold.config import Config
 
+# --------------------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------------------
+
 
 class DummyClass(RandomGeneratorMixin):
     """Dummy class to test the mixin."""
@@ -92,12 +96,12 @@ def test_transform_init() -> None:
 def test_transform_call() -> None:
     """Test the Transform __call__ pipeline delegates correctly."""
     t = DummyTransform(device="cpu")
-    input_data = torch.ones((2, 2))
+    input_data = torch.ones((2, 2, 2))
 
     # Output should be input (1.0s) + sample (2.0s) = 3.0s
     output = t(input_data)
 
-    assert output.shape == (2, 2)
+    assert output.shape == (2, 2, 2)
     assert torch.all(output == 3.0)
 
 
@@ -108,12 +112,12 @@ def test_pipeline() -> None:
 
     pipeline = Pipeline([t1, t2])
 
-    input_data = torch.ones((2, 2))
+    input_data = torch.ones((2, 2, 2))
 
     # t1 adds 2.0 -> 3.0
     # t2 adds 2.0 -> 5.0
     output = pipeline(input_data)
 
-    assert output.shape == (2, 2)
+    assert output.shape == (2, 2, 2)
     assert torch.all(output == 5.0)
     assert len(pipeline.transforms) == 2

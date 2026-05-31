@@ -1,35 +1,25 @@
-"""Base classes module
+"""Abstract base classes and mixins for the synthBOLD synthesis pipeline."""
 
-This module contains the foundational classes and mixins used to build
-the transformation pipeline.
-"""
-
+import importlib
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
+from functools import cached_property
+from pathlib import Path
 from typing import Any, Self
 
 import numpy as np
 import torch
 
 from synthbold.config import Config
+from synthbold.decorator import accept_unbatched, require_dim
+from synthbold.utils import save_nifti, save_zarr
+
+__all__ = ["BaseLabel", "Transform", "Pipeline"]
 
 
 class RandomGeneratorMixin:
-    """Mixin class to provide reproducible PyTorch and NumPy random number generators.
-
-    This mixin initializes:
-        1. `torch.Generator` on the specified device for PyTorch-based random numbers.
-        2. `numpy.random.Generator` seeded consistently with the PyTorch generator for
-            NumPy-based random numbers.
-
-    Both generators are reproducible if a seed is provided, making it suitable for
-    simulations or transforms that mix PyTorch and NumPy.
-
-    Attributes:
-        seed: The seed used for reproducibility, or None if unseeded.
-        device: The PyTorch device for the generator.
-        generator: The initialized PyTorch random number generator.
-        np_generator: The initialized NumPy random number generator.
-    """
+    """Mixin that provides a paired PyTorch and NumPy RNG, both seedable for
+    reproducibility."""
 
     def __init__(
         self, seed: int | None, device: str | torch.device = "cuda", **kwargs: Any
@@ -44,15 +34,8 @@ class RandomGeneratorMixin:
     def _create_generator(
         seed: int | None, device: str | torch.device
     ) -> torch.Generator:
-        """Create a PyTorch generator with optional seeding.
-
-        Args:
-            seed: Seed for the generator. If None, the generator is seeded randomly.
-            device: Device for the generator.
-
-        Returns:
-            Initialized PyTorch random generator.
-        """
+        """Return a seeded or randomly initialised torch.Generator on the given
+        device."""
         gen = torch.Generator(device=device)
         if seed is not None:
             gen.manual_seed(seed)
@@ -62,17 +45,105 @@ class RandomGeneratorMixin:
 
     @staticmethod
     def _create_numpy_generator(seed: int | None) -> np.random.Generator:
-        """Create a NumPy generator with optional seeding.
-
-        Args:
-            seed: Seed for the generator. If None, the generator is not seeded.
-
-        Returns:
-            Initialized NumPy random generator.
-        """
+        """Return a seeded or randomly initialised NumPy Generator."""
         if seed is not None:
             return np.random.default_rng(seed)
         return np.random.default_rng()
+
+
+class BaseLabel(ABC, RandomGeneratorMixin):
+    """Abstract base for label map generators; owns the voxel grids and the
+    batch-generate-and-save loop."""
+
+    # data type for map elements
+    dtype = torch.float32
+
+    def __init__(
+        self,
+        shape: tuple[int, ...],
+        *,
+        device: str | torch.device = "cuda",
+        seed: int | None = None,
+    ) -> None:
+        super().__init__(seed=seed, device=device)
+        self.shape = tuple(shape)
+        self.device = torch.device(device)
+
+    def __call__(self, n_sample: int, fname: Path | None = None) -> torch.Tensor:
+        """Generate a batch of label maps and optionally save them to disk.
+
+        Args:
+            n_sample: Number of generated label maps.
+            fname: File name for saving data to disk in ZARR or NIfTI format.
+
+        Returns:
+            Tensor with random label maps of shape `[n_sample, *self.shape]`.
+        """
+        data = torch.zeros(
+            (n_sample, *self.shape), device=self.device, dtype=self.dtype
+        )
+        for i in range(n_sample):
+            data[i, ...] = self.forward().to(self.dtype)
+
+        # save to disk
+        if fname is not None and fname.suffix == ".zarr":
+            save_zarr(fname, data.cpu().numpy(), self.attrs)
+        elif fname is not None and fname.suffix == ".nii":
+            save_nifti(fname, data.cpu().numpy(), permute=True)
+
+        return data
+
+    @property
+    def attrs(self) -> dict[str, Any]:
+        """Common metadata for ZARR/NIfTI storage."""
+        try:
+            pkg_name = self.__class__.__module__.split(".")[0]
+            version = importlib.metadata.version(pkg_name)
+        except importlib.metadata.PackageNotFoundError:
+            version = "unknown"
+        return {
+            "generator": self.__class__.__name__,
+            "created_at": datetime.now(UTC).isoformat(),
+            "version": version,
+            "axis_order": ("N", "X", "Y", "Z"),
+            "device": str(self.device),
+            "shape": self.shape,
+            "dtype": str(self.dtype),
+            "seed": self.seed,
+        }
+
+    @abstractmethod
+    def forward(self) -> torch.Tensor:
+        """Generate random label maps."""
+        ...
+
+    @cached_property
+    def voxel_grid(self) -> torch.Tensor:
+        """Creates target mesh grid of shape `[X, Y, Z, 3]`."""
+        grid_x, grid_y, grid_z = torch.meshgrid(
+            torch.arange(self.shape[0], device=self.device, dtype=torch.float32),
+            torch.arange(self.shape[1], device=self.device, dtype=torch.float32),
+            torch.arange(self.shape[2], device=self.device, dtype=torch.float32),
+            indexing="ij",
+        )
+        return torch.stack((grid_x, grid_y, grid_z), dim=-1)
+
+    @cached_property
+    def normalized_grid(self) -> torch.Tensor:
+        """Grid normalized to [-1, 1]. Shape: [X, Y, Z, 3]."""
+        grid_x, grid_y, grid_z = torch.meshgrid(
+            torch.linspace(
+                -1, 1, self.shape[0], device=self.device, dtype=torch.float32
+            ),
+            torch.linspace(
+                -1, 1, self.shape[1], device=self.device, dtype=torch.float32
+            ),
+            torch.linspace(
+                -1, 1, self.shape[2], device=self.device, dtype=torch.float32
+            ),
+            indexing="ij",
+        )
+        return torch.stack((grid_x, grid_y, grid_z), dim=-1)
 
 
 class Transform(ABC, RandomGeneratorMixin):
@@ -93,7 +164,7 @@ class Transform(ABC, RandomGeneratorMixin):
         super().__init__(seed=seed, device=device)
 
     def __call__(self, data: torch.Tensor) -> torch.Tensor:
-        """API for data transformation."""
+        """Move data to the target device and apply the transform."""
         # Move input tensor to the correct device
         data = data.to(self.device)
         result = self.forward(data)
@@ -101,14 +172,16 @@ class Transform(ABC, RandomGeneratorMixin):
 
     @abstractmethod
     def sample(self, shape: tuple[int, ...]) -> torch.Tensor:
-        """Computes transformation with shape based on input tensor shape."""
+        """Sample transform parameters for a tensor of the given shape."""
         ...
 
     @abstractmethod
     def apply(self, x: torch.Tensor, transform: torch.Tensor) -> torch.Tensor:
-        """Applies transformation to input tensor."""
+        """Apply pre-sampled transform parameters to the input tensor."""
         ...
 
+    @require_dim(3, 4)
+    @accept_unbatched(dim=3)
     def forward(self, data: torch.Tensor) -> torch.Tensor:
         """Generates transformation and applies to input tensor."""
         transformation = self.sample(data.shape)

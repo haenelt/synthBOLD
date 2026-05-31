@@ -1,8 +1,8 @@
-"""Synthetic fMRI generator for BOLD simulations.
+"""Synthetic fMRI image generator for BOLD simulations.
 
 This package contains classes and functions used to generate synthetic blood vessel
 networks and tissue data. By using synthetic data, a rich learning environment can be
-created by high variance sampling and unrealistic domain randomization, which eliminates
+created by high variance sampling for unrealistic domain randomization, which eliminates
 the need for real imaging data.
 
 Copyright (c) 2026 Daniel Haenelt

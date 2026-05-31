@@ -9,10 +9,15 @@ license = "GPL-3.0-or-later"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "matplotlib>=3.10.9",
+    "nibabel>=5.4.2",
     "numpy>=2.4.4",
     "pydantic>=2.13.3",
     "pyyaml>=6.0.3",
+    "scikit-image>=0.26.0",
     "torch>=2.11.0",
+    "types-pyyaml>=6.0.12.20260408",
+    "zarr>=3.1.6",
 ]
 
 [dependency-groups]
@@ -23,6 +28,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-sugar>=1.1.1",
     "ruff>=0.15.12",
+    "types-pyyaml>=6.0.12.20260408",
 ]
 docs = [
     "autodoc-pydantic>=2.2.0",
@@ -55,7 +61,6 @@ select = [
 ignore = [
   "E203", # compatible with black
   "E266",
-  "E501", # line-length handled by formatter
 ]
 
 [tool.ruff.format]
@@ -66,6 +71,9 @@ line-ending = "lf"
 # ----------------------------------------------------------
 # Backend: uv uses hatchling for build by default
 # ----------------------------------------------------------
+[project.scripts]
+synthbold = "synthbold.__main__:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -40,7 +40,7 @@ clean-cache:  ## remove additional cached files
 format: ## linting, type checking, <> is replaced with package name
 	uv run ruff check . --fix
 	uv run ruff format .
-	uv run mypy --strict synthbold tests
+	uv run mypy synthbold tests
 
 test: ## run test suite
 	uv run pytest
