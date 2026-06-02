@@ -86,9 +86,9 @@ class PhysioParams(BaseModel):
         label_displacement_shape: Shape of noise map for smooth displacement field.
         label_J: Number of tissue classes.
         label_scale: Scale factor of the noise map.
-        num_vessels: Number of generated cylinder vessels.
-        cbv: Cerebral blood volume fraction.
-        vessel_diameter: Range of cylinder diameters in mm.
+        num_cylinders: Number of generated cylinders.
+        vf: Volume fraction.
+        cylinder_diameter: Range of cylinder diameters in mm.
         allow_overlap: Allow cylinders to overlap.
         tissue_mu: Mean intensity range for different tissue compartments.
         tissue_std: Standard deviation range for intensities within tissue types.
@@ -100,9 +100,9 @@ class PhysioParams(BaseModel):
     label_displacement_shape: tuple[int, int, int] = (4, 4, 4)
     label_J: int = 8
     label_scale: float = 0.2
-    num_vessels: int | None = None
-    cbv: Range = Range(min=0.005, max=0.01)
-    vessel_diameter: Range = Range(min=0.25, max=2.0)
+    num_cylinders: int | None = None
+    vf: Range = Range(min=0.005, max=0.01)
+    cylinder_diameter: Range = Range(min=0.25, max=2.0)
     allow_overlap: bool = True
     tissue_mu: Range = Range(min=10.0, max=100.0)
     tissue_std: Range = Range(min=5.0, max=10.0)

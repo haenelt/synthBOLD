@@ -1,16 +1,17 @@
+- geometries
+  - Ellipsoids
+  - Triangles
+  - Squares
+  - Toroids
+- example scripts
+  - gif of saved labels
+  - nice mesh visualization of saved labels
+
 - make comments, docstrings, tests, docs
     - __main__
-    - base
     - config
     - decorator
-    - labels
     - utils
-
-- make Ellipsoid
-- make Toroid
-- make Triangles
-- make Squares
-- example script: make gifs of saved labels
 
 - add transforms
 - add models

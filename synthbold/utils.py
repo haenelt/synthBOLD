@@ -90,8 +90,8 @@ def save_nifti(
     niivue: bool = False,
 ) -> None:
     """Save a NumPy array to a NIfTI file. If `permute` is True, the first and last axes
-    of `data` are swapped. This is useful when the data has shape `[N, X, Y, Z]` but
-    needs to be saved as `[X, Y, Z, N]` to store 3D volumes as a time series.
+    of `data` are swapped. This is useful when the data has shape ``(N, X, Y, Z)`` but
+    needs to be saved as ``(X, Y, Z, N)`` to store 3D volumes as a time series.
 
     Args:
         fname:

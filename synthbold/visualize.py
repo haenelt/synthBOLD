@@ -21,7 +21,7 @@ def make_gif(
 
     Args:
         fname: Output file path for the saved GIF.
-        data: Batch of 3D volumes with shape `[N, X, Y, Z]`.
+        data: Batch of 3D volumes with shape ``(N, X, Y, Z)``.
         cmap: Matplotlib colormap name.
         fps: Frames per second for the output GIF.
     """
@@ -64,7 +64,7 @@ def render_3d(
 
     Args:
         fname: Output file path for the saved PNG.
-        mask: 3D binary mask tensor of shape `[X, Y, Z]`.
+        mask: 3D binary mask tensor of shape ``(X, Y, Z)``.
         color: Face color for the surface mesh.
         alpha: Opacity of the surface mesh.
         elev: Elevation angle of the 3D view in degrees.

@@ -4,9 +4,9 @@ import argparse
 import logging
 from pathlib import Path
 
-from synthbold.base import BaseLabel
+from synthbold.base import BaseGeometry
 from synthbold.config import Config
-from synthbold.labels import TissueLabel, VesselLabel
+from synthbold.geometries import Cylinders, Shapes
 
 
 def setup_logging(level: int = logging.INFO) -> None:
@@ -59,10 +59,10 @@ def main() -> None:
     if args.seed is not None:
         config = config.model_copy(update={"seed": args.seed})
 
-    generator: BaseLabel = (
-        TissueLabel.from_config(config)
+    generator: BaseGeometry = (
+        Shapes.from_config(config)
         if args.label == "tissue"
-        else VesselLabel.from_config(config)
+        else Cylinders.from_config(config)
     )
 
     logger.info("Generating %d %s label map(s)", args.n_sample, args.label)

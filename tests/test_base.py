@@ -1,5 +1,3 @@
-"""Tests for base classes and mixins."""
-
 from typing import Self
 
 import numpy as np
@@ -7,10 +5,6 @@ import torch
 
 from synthbold.base import Pipeline, RandomGeneratorMixin, Transform
 from synthbold.config import Config
-
-# --------------------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------------------
 
 
 class DummyClass(RandomGeneratorMixin):
@@ -31,6 +25,9 @@ class DummyTransform(Transform):
     @classmethod
     def from_config(cls, config: Config) -> Self:
         return cls(device="cpu")
+
+
+# --- RandomGeneratorMixin ---
 
 
 def test_random_generator_mixin_unseeded() -> None:
@@ -84,6 +81,9 @@ def test_random_generator_mixin_different_seeds() -> None:
     assert not np.array_equal(val1_np, val2_np)
 
 
+# --- Transform ---
+
+
 def test_transform_init() -> None:
     """Test Transform initialization and inherited mixin properties."""
     t = DummyTransform(device="cpu", seed=42)
@@ -103,6 +103,9 @@ def test_transform_call() -> None:
 
     assert output.shape == (2, 2, 2)
     assert torch.all(output == 3.0)
+
+
+# --- Pipeline ---
 
 
 def test_pipeline() -> None:

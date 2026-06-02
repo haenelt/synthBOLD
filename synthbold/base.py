@@ -14,12 +14,18 @@ from synthbold.config import Config
 from synthbold.decorator import accept_unbatched, require_dim
 from synthbold.utils import save_nifti, save_zarr
 
-__all__ = ["BaseLabel", "Transform", "Pipeline"]
+__all__ = ["BaseGeometry", "Transform", "Pipeline"]
 
 
 class RandomGeneratorMixin:
     """Mixin that provides a paired PyTorch and NumPy RNG, both seedable for
-    reproducibility."""
+    reproducibility, for device-aware random sampling.
+
+    Args:
+        seed: Integer seed for deterministic output. Pass ``None`` for
+            non-deterministic behaviour.
+        device: PyTorch device on which ``generator`` is created.
+    """
 
     def __init__(
         self, seed: int | None, device: str | torch.device = "cuda", **kwargs: Any
@@ -51,9 +57,18 @@ class RandomGeneratorMixin:
         return np.random.default_rng()
 
 
-class BaseLabel(ABC, RandomGeneratorMixin):
-    """Abstract base for label map generators; owns the voxel grids and the
-    batch-generate-and-save loop."""
+class BaseGeometry(ABC, RandomGeneratorMixin):
+    """Abstract base for creating basic geometries.
+
+    Subclasses implement ``forward()`` to produce a single sample. This class provides
+    the batch loop (``__call__``), optional save-to-disk (ZARR or NIfTI), cached
+    coordinate grids, and serialisation of metadata via ``attrs``.
+
+    Args:
+        shape: Spatial dimensions ``(X, Y, Z)`` of each generated volume.
+        device: PyTorch device for tensor allocation and RNG.
+        seed: Integer seed for reproducible output; ``None`` for random.
+    """
 
     # data type for map elements
     dtype = torch.float32
@@ -70,14 +85,14 @@ class BaseLabel(ABC, RandomGeneratorMixin):
         self.device = torch.device(device)
 
     def __call__(self, n_sample: int, fname: Path | None = None) -> torch.Tensor:
-        """Generate a batch of label maps and optionally save them to disk.
+        """Generate a batch of geometries and optionally save them to disk.
 
         Args:
-            n_sample: Number of generated label maps.
+            n_sample: Number of generated geometry labels.
             fname: File name for saving data to disk in ZARR or NIfTI format.
 
         Returns:
-            Tensor with random label maps of shape `[n_sample, *self.shape]`.
+            Tensor with random geometry labels of shape ``(n_sample, *self.shape)``.
         """
         data = torch.zeros(
             (n_sample, *self.shape), device=self.device, dtype=self.dtype
@@ -114,12 +129,12 @@ class BaseLabel(ABC, RandomGeneratorMixin):
 
     @abstractmethod
     def forward(self) -> torch.Tensor:
-        """Generate random label maps."""
+        """Generate random geometry labels."""
         ...
 
     @cached_property
     def voxel_grid(self) -> torch.Tensor:
-        """Creates target mesh grid of shape `[X, Y, Z, 3]`."""
+        """Creates target mesh grid of shape ``(X, Y, Z, 3)``."""
         grid_x, grid_y, grid_z = torch.meshgrid(
             torch.arange(self.shape[0], device=self.device, dtype=torch.float32),
             torch.arange(self.shape[1], device=self.device, dtype=torch.float32),
@@ -130,7 +145,7 @@ class BaseLabel(ABC, RandomGeneratorMixin):
 
     @cached_property
     def normalized_grid(self) -> torch.Tensor:
-        """Grid normalized to [-1, 1]. Shape: [X, Y, Z, 3]."""
+        """Grid normalized to [-1, 1] of shape ``(X, Y, Z, 3)``."""
         grid_x, grid_y, grid_z = torch.meshgrid(
             torch.linspace(
                 -1, 1, self.shape[0], device=self.device, dtype=torch.float32
@@ -149,15 +164,14 @@ class BaseLabel(ABC, RandomGeneratorMixin):
 class Transform(ABC, RandomGeneratorMixin):
     """Base class for single transformations on PyTorch tensors.
 
-    This abstract class provides the foundation for all data transformations. Subclasses
-    are required to implement `sample`, `apply`, and `from_config`. The base
+    This abstract class provides the foundation for all data transformations.
+    Subclasses are required to implement `sample`, `apply`, and `from_config`. The base
     implementation automatically handles moving input data to the target device and
     sequencing the sampling and application steps.
 
     Args:
-        device: The PyTorch device (e.g., 'cpu', 'cuda') where the
-            transformation will operate.
-        seed: An optional seed for reproducible random number generation.
+        device: PyTorch device for tensor allocation and RNG.
+        seed: Integer seed for reproducible output; ``None`` for random.
     """
 
     def __init__(self, device: str | torch.device, seed: int | None = None) -> None:
@@ -165,7 +179,6 @@ class Transform(ABC, RandomGeneratorMixin):
 
     def __call__(self, data: torch.Tensor) -> torch.Tensor:
         """Move data to the target device and apply the transform."""
-        # Move input tensor to the correct device
         data = data.to(self.device)
         result = self.forward(data)
         return result
