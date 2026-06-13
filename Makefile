@@ -38,8 +38,8 @@ clean-cache:  ## remove additional cached files
 	rm -fr .coverage
 
 format: ## linting, type checking, <> is replaced with package name
-	uv run ruff check . --fix
 	uv run ruff format .
+	uv run ruff check . --fix
 	uv run mypy synthbold tests
 
 test: ## run test suite

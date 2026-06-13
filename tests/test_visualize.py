@@ -35,7 +35,7 @@ def test_make_gif_single_frame(tmp_path: Path) -> None:
 def test_make_gif_custom_params(tmp_path: Path) -> None:
     fname = tmp_path / "custom.gif"
     data = torch.rand(2, 8, 8, 8)
-    make_gif(fname, data, cmap="gray", fps=5)
+    make_gif(fname, data, cmap="gray", mip=True, fps=5)
     assert fname.exists()
 
 

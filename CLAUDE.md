@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-synthBOLD is a synthetic fMRI generator for BOLD simulations. It produces synthetic blood vessel networks and tissue label maps using PyTorch-based volumetric transforms, enabling training-data generation without real imaging data.
+synthBOLD is a synthetic fMRI generator for BOLD simulations. It produces synthetic tissue images with blood vessel networks or other objects (spheres, cubes, tetrahedra, toroids, etc.) using PyTorch-based volumetric transforms, enabling training-data generation without real imaging data.
 
 ## Commands
 
@@ -39,34 +39,22 @@ Pre-commit hooks run ruff (lint + format) and mypy on every commit. Install with
 
 ## Architecture
 
-### Core abstraction layers
+The project is under active development; the structure below reflects the current state and will change. Read the source files directly for authoritative details rather than relying on this summary.
 
-**`config.py`** — Pydantic models that define all synthesis parameters. `Config` is the root object (frozen, no extra fields) composed of `GeometryParams` (volume shapes and field-of-view) and `PhysioParams` (tissue and vessel generation parameters). `Config.from_yaml` / `Config.from_dict` use deep-merge semantics so partial YAML files override only the specified keys. `Range` is a reusable validated min/max pair.
+### Key modules
 
-**`base.py`** — Abstract base classes:
-- `RandomGeneratorMixin` — provides a paired `torch.Generator` + `numpy.random.Generator`, both seedable for reproducibility. Mixed into all stateful generators.
-- `BaseLabel(ABC, RandomGeneratorMixin)` — base for label map generators; owns `voxel_grid` and `normalized_grid` as `@cached_property` tensors of shape `[X, Y, Z, 3]`.
-- `Transform(ABC, RandomGeneratorMixin)` — base for tensor-to-tensor transforms. Subclasses implement `sample(shape)` (compute the transform parameters) and `apply(x, transform)` (apply them). `forward` is decorated with `@require_dim(3, 4)` and `@ensure_ndim(target_ndim=4)` to normalize input dimensionality. `from_config(config)` is required for factory construction.
-- `Pipeline` — chains a list of `Transform` instances sequentially.
+- **`config.py`** — Pydantic models for synthesis parameters. `Config` is the root object, composed of sub-configs for geometry (`GeometryParams`), physiology (`PhysioParams`), and augmentation transforms (`TransformParams`). Supports partial YAML overrides via deep-merge.
+- **`base.py`** — Abstract base classes: `BaseGeometry`/`ObjectGeometry` for geometry generators, `Model` for signal-generation models, `Transform`/`Pipeline` for tensor-to-tensor transforms, and `RandomGeneratorMixin` for reproducible seeding.
+- **`geometries.py`** — Concrete geometry generators: `Shapes`, `Cylinders`, `Spheres`, `Tetrahedra`, `Cubes`, `Toroids`.
+- **`transforms/`** — Augmentation transforms (subclasses of `Transform`), split into `intensity.py`, `noise.py`, `spatial.py`, and `deform.py`, with shared helpers in `functional.py`.
+- **`models/`** — Physics-based signal models (subclasses of `Model`) that turn geometry/label volumes into synthetic intensity data, e.g. `models/background.py`.
+- **`decorator.py`** — `require_dim` and `accept_unbatched` decorators for tensor dimension validation and transparent batch-dimension handling.
+- **`io.py`** — I/O helpers for NIfTI, ZARR, and mesh formats.
 
-**`labels.py`** — Concrete label map generators:
-- `TissueLabel` — generates random tissue label maps using SynthMorph-style noise: low-res Gaussian noise → trilinear upsample → smooth warp via random displacement field → argmax over `J` channels assigns a label per voxel.
-- `VesselLabel` — stub, not yet implemented.
+### Tensor conventions (current)
 
-Both expose `from_config(config: Config)` for config-driven construction and `__call__(n_sample, fname)` to batch-generate and optionally save to disk.
+- Batch-first layout: `[N, X, Y, Z]`.
+- Device defaults to `"cuda"`, falls back to `"cpu"` in tests.
+- ZARR chunks are `(1, X, Y, Z)`.
 
-**`utils.py`** — Stateless helpers:
-- `require_dim(*dims)` — decorator that validates tensor dimensionality on positional and keyword args.
-- `ensure_ndim(target_ndim)` / `auto_batch` — decorators that promote/squeeze batch dimensions transparently.
-- I/O: `load_nifti`, `save_nifti`, `load_zarr`, `save_zarr`, `save_mesh` (FreeSurfer format via marching cubes).
-
-### Tensor conventions
-
-- Internal computation device defaults to `"cuda"`, falls back to `"cpu"` in tests.
-- Label maps have shape `[N, X, Y, Z]` (batch-first). When saving as NIfTI time series, axes are permuted to `[X, Y, Z, N]` via `save_nifti(..., permute=True)`.
-- ZARR chunks are `(1, X, Y, Z)` — one chunk per sample.
-- `GeometryParams.input_shape` must be integer-divisible by `output_shape` in every dimension (enforced by validator).
-
-### Status
-
-The project is under active development. `VesselLabel`, several `Transform` subclasses (Sphere, Toroid, noise types), temporal BOLD simulation, and visualization utilities are planned but not yet implemented (see `TODO.md`).
+See `TODO.md` for planned work.

@@ -12,9 +12,16 @@ import torch
 
 from synthbold.config import Config
 from synthbold.decorator import accept_unbatched, require_dim
-from synthbold.utils import save_nifti, save_zarr
+from synthbold.io import save_nifti, save_zarr
 
-__all__ = ["BaseGeometry", "Transform", "Pipeline"]
+__all__ = [
+    "RandomGeneratorMixin",
+    "BaseGeometry",
+    "ObjectGeometry",
+    "Model",
+    "Transform",
+    "Pipeline",
+]
 
 
 class RandomGeneratorMixin:
@@ -161,6 +168,188 @@ class BaseGeometry(ABC, RandomGeneratorMixin):
         return torch.stack((grid_x, grid_y, grid_z), dim=-1)
 
 
+class ObjectGeometry(BaseGeometry, ABC):
+    """Abstract base for creating basic objects.
+
+    Args:
+        shape: Spatial dimensions ``(X, Y, Z)`` of each generated volume.
+        fov: Field of view in mm, used to compute voxel size.
+        num_objects: Fixed number of objects to generate. Mutually exclusive with
+        `vf_range`.
+        vf_range: Range of target volume fractions. Objects are added until the volume
+            fraction is reached. Mutually exclusive with `num_objects`.
+        diameter_range: Range of object diameters in mm.
+        allow_overlap: If False, objects are only added if they contribute new voxels.
+        device: PyTorch device for tensor allocation and RNG.
+        seed: Integer seed for reproducible output; ``None`` for random.
+
+    Notes:
+        `num_objects` and `vf_range` are mutually exclusive. If `num_objects` is set,
+        objects are added iteratively until the specified number is reached. If
+        `vf_range` is set, a target volume fraction is randomly sampled from the
+        specified range and objects are added iteratively until the target fraction
+        of occupied voxels is reached.
+    """
+
+    def __init__(
+        self,
+        shape: tuple[int, int, int] = (128, 128, 128),
+        fov: tuple[float, float, float] = (1.0, 1.0, 1.0),
+        num_objects: int | None = None,
+        vf_range: tuple[float, float] | None = (0.05, 0.1),
+        diameter_range: tuple[float, float] = (0.05, 2.0),
+        allow_overlap: bool = True,
+        device: str = "cpu",
+        seed: int | None = None,
+    ) -> None:
+        super().__init__(shape, seed=seed, device=device)
+        self.shape = shape
+        self.fov = fov
+        self.num_objects = num_objects
+        self.vf_range = vf_range
+        self.diameter_range = diameter_range
+        self.allow_overlap = allow_overlap
+
+        # num_objects and vf_range are mutually exclusive
+        if (num_objects is None) == (vf_range is None):
+            raise ValueError("Specify exactly one of num_objects or vf_range.")
+
+        # Convert diameter_range in mm to radius_range in voxel dimension.
+        # We use the mean voxel size across dimensions for conversion.
+        voxel_size = tuple(f / n for f, n in zip(fov, shape, strict=True))
+        voxel_size_mean = sum(voxel_size) / 3
+        self.radius_range = (
+            diameter_range[0] / 2 / voxel_size_mean,
+            diameter_range[1] / 2 / voxel_size_mean,
+        )
+
+    @property
+    def attrs(self) -> dict[str, Any]:
+        """Metadata for ZARR/NIfTI storage."""
+        return {
+            **super().attrs,
+            "fov": self.fov,
+            "num_objects": self.num_objects,
+            "vf_range": self.vf_range,
+            "diameter_range": self.diameter_range,
+            "allow_overlap": self.allow_overlap,
+        }
+
+    def forward(self) -> torch.Tensor:
+        """Generate a labeled 3D volume with random objects."""
+        # Initialize volume
+        volume = torch.zeros(self.shape, device=self.device, dtype=torch.int32)
+        total_voxels = volume.numel()
+
+        # Mode 1: fixed number of objects
+        if self.num_objects is not None:
+            for i in range(self.num_objects):
+                volume, _ = self._add_object(i + 1, volume)
+
+        # Mode 2: target volume fraction
+        elif self.vf_range is not None:
+            vf = (
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.vf_range[1] - self.vf_range[0])
+                + self.vf_range[0]
+            )
+            i, occupied = 0, 0
+            max_iter = total_voxels * 10
+            while occupied / total_voxels < vf and i < max_iter:
+                i += 1
+                volume, _ = self._add_object(i, volume)
+                # recompute occupied voxels
+                occupied = int(torch.count_nonzero(volume).item())
+        else:
+            raise ValueError(
+                "Either number of objects or volume fraction must be specified."
+            )
+
+        return volume
+
+    def _add_object(self, label: int, volume: torch.Tensor) -> tuple[torch.Tensor, int]:
+        """Insert an object into a labeled 3D volume. A binary object mask is generated
+        and written into the provided volume. Depending on the overlap setting, the
+        object may overwrite existing labels or only fill previously empty voxels.
+
+        Args:
+            label: Integer label assigned to voxel belonging to the object.
+            volume: 3D tensor representing the labeled volume. Background voxels are
+                assumed to be 0.
+
+        Returns:
+            A tuple with the following elements:
+                - Updated volume with the object inserted.
+                - Number of voxels newly assigned to this object (i.e., voxels
+                  written during this operation).
+        """
+        # Generate object mask. If failed, do nothing.
+        mask = self._mask_object()
+        if mask is None:
+            return volume, 0
+        if not self.allow_overlap:
+            mask = mask & (volume == 0)
+        new_voxels = int(torch.count_nonzero(mask).item())
+        volume[mask] = label
+        return volume, new_voxels
+
+    @abstractmethod
+    def _mask_object(self) -> torch.Tensor | None:
+        """Return a boolean mask for one object instance."""
+        ...
+
+
+class Model(ABC, RandomGeneratorMixin):
+    """Abstract base class for making single models callable.
+
+    Args:
+        config: Configuration object.
+        device: PyTorch device for tensor allocation and RNG.
+        seed: Integer seed for reproducible output; ``None`` for random.
+    """
+
+    def __init__(
+        self, config: Config, device: str = "cpu", seed: int | None = None
+    ) -> None:
+        super().__init__(seed=seed, device=device)
+        self.config = config
+
+    def __call__(self, data: torch.Tensor, fname: Path | None = None) -> torch.Tensor:
+        """Generate data from input tensor and optionally save generated data to disk in
+        ZARR or NIfTI format."""
+        result: torch.Tensor = self.forward(data)
+
+        # save to disk
+        if fname is not None and fname.suffix == ".zarr":
+            save_zarr(fname, data.cpu().numpy(), self.attrs)
+        elif fname is not None and fname.suffix == ".nii":
+            save_nifti(fname, data.cpu().numpy(), permute=True)
+
+        return result
+
+    @property
+    def attrs(self) -> dict[str, Any]:
+        """Common metadata for ZARR/NIfTI storage."""
+        try:
+            pkg_name = self.__class__.__module__.split(".")[0]
+            version = importlib.metadata.version(pkg_name)
+        except importlib.metadata.PackageNotFoundError:
+            version = "unknown"
+        return {
+            "generator": self.__class__.__name__,
+            "created_at": datetime.now(UTC).isoformat(),
+            "version": version,
+            "axis_order": ("N", "X", "Y", "Z"),
+            "device": str(self.device),
+            "seed": self.seed,
+        }
+
+    @abstractmethod
+    def forward(self, data: torch.Tensor) -> torch.Tensor:
+        """Generate data."""
+        ...
+
+
 class Transform(ABC, RandomGeneratorMixin):
     """Base class for single transformations on PyTorch tensors.
 
@@ -188,8 +377,9 @@ class Transform(ABC, RandomGeneratorMixin):
         """Sample transform parameters for a tensor of the given shape."""
         ...
 
+    @staticmethod
     @abstractmethod
-    def apply(self, x: torch.Tensor, transform: torch.Tensor) -> torch.Tensor:
+    def apply(x: torch.Tensor, transform: torch.Tensor) -> torch.Tensor:
         """Apply pre-sampled transform parameters to the input tensor."""
         ...
 

@@ -1,4 +1,4 @@
-"""Definitions of raw geometry labels (e.g., Shapes, Cylinders, Squares, etc.) that are
+"""Definitions of raw geometry labels (e.g., Shapes, Cylinders, Cubes, etc.) that are
 used as inputs for data synthesis."""
 
 from typing import Any, Self
@@ -6,10 +6,11 @@ from typing import Any, Self
 import torch
 import torch.nn.functional as F
 
-from synthbold.base import BaseGeometry
+from synthbold.base import BaseGeometry, ObjectGeometry
 from synthbold.config import Config
+from synthbold.transforms.functional import apply_deformation
 
-__all__ = ["Shapes", "Cylinders", "Ellipsoids", "Triangles", "Squares", "Toroids"]
+__all__ = ["Shapes", "Cylinders", "Spheres", "Tetrahedra", "Cubes", "Toroids"]
 
 
 class Shapes(BaseGeometry):
@@ -106,38 +107,31 @@ class Shapes(BaseGeometry):
         Returns:
             Deformed noise images.
         """
-        warped_pj = []
+        N = data.shape[0]
         data = data.to(self.device)
-        for j in range(data.shape[0]):
-            # Random smooth displacement
-            disp = torch.randn(
-                1,
-                3,
-                *self.displacement_shape,
-                device=self.device,
-                generator=self.generator,
-            )
-            disp = F.interpolate(
-                disp, size=self.shape, mode="trilinear", align_corners=True
-            )
-            disp = disp.squeeze(0).permute(1, 2, 3, 0)  # [X, Y, Z, 3]
-            # Scale displacement
-            disp = disp * self.scale  # adjust amplitude
 
-            # Warped image
-            # F.grid_sample expects grid channels in (W, H, D) order, i.e. reversed
-            # relative to the (X, Y, Z) convention used by normalized_grid.
-            grid = (self.normalized_grid + disp)[..., [2, 1, 0]]
-            warped = F.grid_sample(
-                data[j].unsqueeze(0).unsqueeze(0),  # (1, 1, X, Y, Z),
-                grid.unsqueeze(0),  # (1, X, Y, Z, 3)
-                mode="nearest",
-                padding_mode="reflection",
-                align_corners=True,
-            )
-            warped_pj.append(warped.squeeze(0).squeeze(0))
+        # Random smooth displacement field per noise image, in normalized [-1, 1]
+        # coordinate units
+        disp = torch.randn(
+            N,
+            3,
+            *self.displacement_shape,
+            device=self.device,
+            generator=self.generator,
+        )
+        disp = F.interpolate(
+            disp, size=self.shape, mode="trilinear", align_corners=True
+        )
+        disp = disp.permute(0, 2, 3, 4, 1)  # (N, X, Y, Z, 3)
 
-        return torch.stack(warped_pj, dim=0)  # (J, X, Y, Z)
+        # Scale displacement and convert from normalized coordinates to voxel units,
+        # as expected by apply_deformation
+        voxel_scale = torch.tensor(
+            [s / 2 for s in self.shape], device=self.device, dtype=disp.dtype
+        )
+        disp = disp * self.scale * voxel_scale
+
+        return apply_deformation(data, disp, interp="nearest")
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
@@ -152,7 +146,7 @@ class Shapes(BaseGeometry):
         )
 
 
-class Cylinders(BaseGeometry):
+class Cylinders(ObjectGeometry):
     """Random cylinder mask generator.
 
     Generates random cylindrical label masks with set volume fraction. Volume fraction
@@ -166,10 +160,10 @@ class Cylinders(BaseGeometry):
     Attributes:
         shape: Matrix size of the cylinder label map ``(X, Y, Z)``.
         fov: Field of view in mm, used to compute voxel size.
-        num_cylinders: Fixed number of cylinders to generate. Mutually exclusive with
+        num_objects: Fixed number of cylinders to generate. Mutually exclusive with
             `vf_range`.
         vf_range: Range of target volume fractions. Cylinders are added until the
-            volume fraction is reached. Mutually exclusive with `num_cylinders`.
+            volume fraction is reached. Mutually exclusive with `num_objects`.
         diameter_range: Range of cylinder diameters in mm.
         allow_overlap: If False, cylinders are only added if they contribute new voxels.
         device: Target compute device, e.g. 'cuda' or 'cpu'.
@@ -184,139 +178,9 @@ class Cylinders(BaseGeometry):
         >>> fname = "<fname-zarr>"
         >>> cylinder_map = Cylinders(output_shape, fov, num_cylinders)
         >>> cylinder_map(100, fname)
-
-    Notes:
-        `num_cylinders` and `vf_range` are mutually exclusive. If `num_cylinders` is
-        set, cylinders are added iteratively until the specified number is reached. If
-        `vf_range` is set, a target volume fraction is randomly sampled from the
-        specified range and cylinders are added iteratively until the target fraction
-        of occupied voxels is reached.
     """
 
-    def __init__(
-        self,
-        shape: tuple[int, int, int] = (128, 128, 128),
-        fov: tuple[float, float, float] = (1.0, 1.0, 1.0),
-        num_cylinders: int | None = None,
-        vf_range: tuple[float, float] | None = (0.05, 0.1),
-        diameter_range: tuple[float, float] = (0.05, 2.0),
-        allow_overlap: bool = True,
-        device: str = "cpu",
-        seed: int = 42,
-    ) -> None:
-        super().__init__(shape, seed=seed, device=device)
-        self.shape = shape
-        self.fov = fov
-        self.num_cylinders = num_cylinders
-        self.vf_range = vf_range
-        self.diameter_range = diameter_range
-        self.allow_overlap = allow_overlap
-
-        # num_cylinders and vf_range are mutually exclusive
-        if (self.num_cylinders is None) == (self.vf_range is None):
-            raise ValueError("Specify exactly one of num_cylinders or vf_range.")
-
-        # Convert diameter_range in mm to radius_range in voxel dimension.
-        # We use the mean voxel size across dimensions for conversion.
-        voxel_size = tuple(f / n for f, n in zip(self.fov, self.shape, strict=True))
-        voxel_size_mean = sum(voxel_size) / 3
-        self.radius_range = (
-            self.diameter_range[0] / 2 / voxel_size_mean,
-            self.diameter_range[1] / 2 / voxel_size_mean,
-        )
-
-    @property
-    def attrs(self) -> dict[str, Any]:
-        """Metadata for ZARR/NIfTI storage."""
-        return {
-            **super().attrs,
-            "description": "Vessel maps",
-            "fov": self.fov,
-            "num_cylinders": self.num_cylinders,
-            "vf_range": self.vf_range,
-            "diameter_range": self.diameter_range,
-            "allow_overlap": self.allow_overlap,
-        }
-
-    def forward(self) -> torch.Tensor:
-        """Generate random cylinder label maps. Each cylinder is assigned a unique
-        integer label (>0), while background voxels remain 0.
-
-        Two generation modes are supported:
-            1. Fixed number of cylinders (``self.num_cylinders``)
-            2. Target volume fraction (``self.vf_range``)
-
-        If `self.vf_range` is set, cylinders are added iteratively until the fraction
-        of occupied voxels reaches the target volume fraction.
-
-        Returns:
-            3D tensor of shape `shape` with integer labels:
-                - 0: background
-                - 1..N: individual cylinders
-        """
-        # Initialize volume
-        volume = torch.zeros(self.shape, device=self.device, dtype=torch.int32)
-        total_voxels = volume.numel()
-
-        # Mode 1: fixed number of cylinders
-        if self.num_cylinders is not None:
-            for i in range(self.num_cylinders):
-                volume, _ = self._add_cylinder(i + 1, volume)
-
-        # Mode 2: target volume fraction
-        elif self.vf_range is not None:
-            # Sample target volume fraction uniformly from range
-            vf = (
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.vf_range[1] - self.vf_range[0])
-                + self.vf_range[0]
-            )
-            occupied = 0
-            i = 0
-            max_iter = total_voxels * 10
-            while occupied / total_voxels < vf and i < max_iter:
-                i += 1
-                volume, _ = self._add_cylinder(i, volume)
-                # recompute occupied voxels
-                occupied = int(torch.count_nonzero(volume).item())
-        else:
-            raise ValueError("Either num_cylinders or vf_range must be set.")
-
-        return volume
-
-    def _add_cylinder(
-        self, label: int, volume: torch.Tensor
-    ) -> tuple[torch.Tensor, int]:
-        """Insert a cylinder into a labeled 3D volume. A binary cylinder mask is
-        generated and written into the provided volume. Depending on the overlap
-        setting, the cylinder may overwrite existing labels or only fill previously
-        empty voxels.
-
-        Args:
-            label: Integer label assigned to voxel belonging to the cylinder.
-            volume: 3D tensor representing the labeled volume. Background voxels are
-                assumed to be 0.
-
-        Returns:
-            A tuple with the following elements:
-                - Updated volume with the cylinder inserted.
-                - Number of voxels newly assigned to this cylinder (i.e., voxels
-                  written during this operation).
-        """
-        # Generate cylinder. If failed, do nothing.
-        mask = self._mask_cylinder()
-        if mask is None:
-            return volume, 0
-
-        if not self.allow_overlap:
-            empty_mask = volume == 0
-            mask = mask & empty_mask
-
-        new_voxels = int(torch.count_nonzero(mask).item())
-        volume[mask] = label
-        return volume, new_voxels
-
-    def _mask_cylinder(self) -> torch.Tensor | None:
+    def _mask_object(self) -> torch.Tensor | None:
         """Generate a binary mask of a randomly oriented cylinder. The cylinder is
         defined by (1) a random axis direction, (2) a random point inside the volume,
         and (3) a random radius. The cylider is extended along its axis to span the
@@ -424,37 +288,469 @@ class Cylinders(BaseGeometry):
     def from_config(cls, config: Config) -> Self:
         """Constructs cylinder label map instance from configuration object."""
         diameter_range = (
-            config.physio.cylinder_diameter.min,
-            config.physio.cylinder_diameter.max,
+            config.geom.cylinder_diameter.min,
+            config.geom.cylinder_diameter.max,
         )
         vf_range = (
             None
-            if config.physio.num_cylinders is not None
-            else (config.physio.vf.min, config.physio.vf.max)
+            if config.geom.cylinder_num is not None
+            else (config.geom.cylinder_vf.min, config.geom.cylinder_vf.max)
         )
         return cls(
             shape=config.geom.input_shape,
             fov=config.geom.fov,
-            num_cylinders=config.physio.num_cylinders,
+            num_objects=config.geom.cylinder_num,
             vf_range=vf_range,
             diameter_range=diameter_range,
-            allow_overlap=config.physio.allow_overlap,
+            allow_overlap=config.geom.cylinder_allow_overlap,
             seed=config.seed,
             device=config.device,
         )
 
 
-class Ellipsoids:
-    pass
+class Spheres(ObjectGeometry):
+    """Random sphere mask generator.
+
+    Generates random spherical label masks. Follows the same interface as
+    :class:`Cylinders`; see that class for a full description of the shared
+    parameters.
+    """
+
+    def _mask_object(self) -> torch.Tensor:
+        """Generate a binary mask of a randomly placed sphere. The sphere center is
+        drawn uniformly inside the volume bounds and the radius is sampled uniformly
+        from ``radius_range``.
+
+        Returns:
+            Boolean tensor of shape ``shape`` where ``True`` indicates voxels
+            inside the sphere.
+        """
+        # Random center inside volume
+        center = torch.stack(
+            [
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[0] - 1),
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[1] - 1),
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[2] - 1),
+            ]
+        )
+
+        # Random radius
+        radius = (
+            torch.rand((), device=self.device, generator=self.generator)
+            * (self.radius_range[1] - self.radius_range[0])
+            + self.radius_range[0]
+        )
+
+        dist = torch.norm(self.voxel_grid - center, dim=-1)
+        return dist <= radius
+
+    @classmethod
+    def from_config(cls, config: Config) -> Self:
+        """Constructs sphere label map instance from configuratin object."""
+        diameter_range = (
+            config.geom.sphere_diameter.min,
+            config.geom.sphere_diameter.max,
+        )
+        vf_range = (
+            None
+            if config.geom.sphere_num is not None
+            else (config.geom.sphere_vf.min, config.geom.sphere_vf.max)
+        )
+        return cls(
+            shape=config.geom.input_shape,
+            fov=config.geom.fov,
+            num_objects=config.geom.sphere_num,
+            vf_range=vf_range,
+            diameter_range=diameter_range,
+            allow_overlap=config.geom.sphere_allow_overlap,
+            seed=config.seed,
+            device=config.device,
+        )
 
 
-class Triangles:
-    pass
+class Tetrahedra(ObjectGeometry):
+    """Random tetrahedron mask generator.
+
+    Generates random tetrahedral label masks. Each tetrahedron is a regular tetrahedron
+    placed at a random position in the volume with a random orientation and a random
+    circumradius drawn uniformly from ``diameter_range``. Volume fraction and diameters
+    are randomly chosen from a uniform distribution with set boundaries. Optionally,
+    instead of using volume fraction, the number of tetrahedra can be set directly.
+
+    Attributes:
+        shape: Matrix size of the tetrahedron label map ``(X, Y, Z)``.
+        fov: Field of view in mm, used to compute voxel size.
+        num_objects: Fixed number of tetrahedra to generate. Mutually exclusive with
+            `vf_range`.
+        vf_range: Range of target volume fractions. Tetrahedra are added until the
+            volume fraction is reached. Mutually exclusive with `num_objects`.
+        diameter_range: Range of tetrahedron circumdiameters in mm.
+        allow_overlap: If False, tetrahedra are only added if they contribute new
+            voxels.
+        device: Target compute device, e.g. 'cuda' or 'cpu'.
+        seed: Random seed for reproducibility.
+
+    Examples:
+        Create 100 random tetrahedron label maps and save to disk:
+
+        >>> shape = (128, 128, 128)
+        >>> fov = (32.0, 32.0, 32.0)
+        >>> num_tetrahedra = 10
+        >>> fname = "<fname-zarr>"
+        >>> tetra_map = Tetrahedra(shape, fov, num_tetrahedra)
+        >>> tetra_map(100, fname)
+    """
+
+    # Canonical regular tetrahedron vertices with circumradius = 1.
+    # The four vertices are (±1, ±1, ±1)/√3 with an even number of minus signs.
+    _CANONICAL_VERTICES: torch.Tensor = torch.tensor(
+        [
+            [1.0, 1.0, 1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+        ]
+    ) / (3.0**0.5)
+
+    def _mask_object(self) -> torch.Tensor:
+        """Generate a binary mask of a randomly placed and oriented regular tetrahedron.
+
+        A random circumradius is sampled from ``radius_range``, a random rotation is
+        drawn via QR decomposition, and the tetrahedron is placed at a random center
+        inside the volume. Voxel membership is decided by checking all four half-space
+        constraints (one per face).
+
+        Returns:
+            Boolean tensor of shape ``shape`` where ``True`` marks voxels inside the
+            tetrahedron.
+        """
+        # Random center inside volume
+        center = torch.stack(
+            [
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[0] - 1),
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[1] - 1),
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[2] - 1),
+            ]
+        )
+
+        # Random circumradius
+        radius = (
+            torch.rand((), device=self.device, generator=self.generator)
+            * (self.radius_range[1] - self.radius_range[0])
+            + self.radius_range[0]
+        )
+
+        # Random rotation via QR decomposition of a random normal matrix
+        rand_mat = torch.randn(3, 3, device=self.device, generator=self.generator)
+        Q, _ = torch.linalg.qr(rand_mat)
+        # Ensure det = +1 (proper rotation, not a reflection)
+        if torch.det(Q) < 0:
+            Q = -Q
+
+        # Rotate, scale, and translate canonical vertices
+        verts = self._CANONICAL_VERTICES.to(self.device)  # (4, 3), circumradius = 1
+        verts = radius * (verts @ Q.T) + center  # (4, 3)
+
+        # Half-space test: a voxel is inside the tetrahedron if it lies on the inward
+        # side of all four face planes.
+        pts = self.voxel_grid  # (X, Y, Z, 3)
+        inside = torch.ones(self.shape, device=self.device, dtype=torch.bool)
+
+        faces = [
+            (verts[1], verts[2], verts[3], verts[0]),
+            (verts[0], verts[2], verts[3], verts[1]),
+            (verts[0], verts[1], verts[3], verts[2]),
+            (verts[0], verts[1], verts[2], verts[3]),
+        ]
+        for a, b, c, opposite in faces:
+            n = torch.linalg.cross(b - a, c - a)
+            if torch.dot(n, opposite - a) < 0:
+                n = -n
+            sd = torch.tensordot(pts - a, n, dims=([3], [0]))
+            inside = inside & (sd >= 0)
+
+        return inside
+
+    @classmethod
+    def from_config(cls, config: Config) -> Self:
+        """Constructs tetrahedron label map instance from configuration object."""
+        diameter_range = (
+            config.geom.tetrahedron_diameter.min,
+            config.geom.tetrahedron_diameter.max,
+        )
+        vf_range = (
+            None
+            if config.geom.tetrahedron_num is not None
+            else (config.geom.tetrahedron_vf.min, config.geom.tetrahedron_vf.max)
+        )
+        return cls(
+            shape=config.geom.input_shape,
+            fov=config.geom.fov,
+            num_objects=config.geom.tetrahedron_num,
+            vf_range=vf_range,
+            diameter_range=diameter_range,
+            allow_overlap=config.geom.tetrahedron_allow_overlap,
+            seed=config.seed,
+            device=config.device,
+        )
 
 
-class Squares:
-    pass
+class Cubes(ObjectGeometry):
+    """Random cube mask generator.
+
+    Generates random cube label masks with set volume fraction. Each cube is a regular
+    cube placed at a random position in the volume with a random orientation and a
+    random circumradius drawn uniformly from ``diameter_range``. Volume fraction and
+    diameters are randomly chosen from a uniform distribution with set boundaries.
+    Optionally, instead of using volume fraction, the number of cubes can be set
+    directly.
+
+    Attributes:
+        shape: Matrix size of the cube label map ``(X, Y, Z)``.
+        fov: Field of view in mm, used to compute voxel size.
+        num_objects: Fixed number of cubes to generate. Mutually exclusive with
+            `vf_range`.
+        vf_range: Range of target volume fractions. Cubes are added until the
+            volume fraction is reached. Mutually exclusive with `num_objects`.
+        diameter_range: Range of cube circumdiameters in mm.
+        allow_overlap: If False, cubes are only added if they contribute new voxels.
+        device: Target compute device, e.g. 'cuda' or 'cpu'.
+        seed: Random seed for reproducibility.
+
+    Notes:
+        The ``diameter_range`` is interpreted as the circumdiameter (diameter of the
+        circumscribed sphere), consistent with the ``Tetrahedra`` convention.
+
+    Examples:
+        Create 100 random cube label maps and save to disk:
+
+        >>> shape = (128, 128, 128)
+        >>> fov = (32.0, 32.0, 32.0)
+        >>> num_cubes = 10
+        >>> fname = "<fname-zarr>"
+        >>> cube_map = Cubes(shape, fov, num_cubes)
+        >>> cube_map(100, fname)
+    """
+
+    def _mask_object(self) -> torch.Tensor:
+        """Generate a binary mask of a randomly placed and oriented cube.
+
+        A random circumradius is sampled from ``radius_range``, a random rotation is
+        drawn via QR decomposition, and the cube is placed at a random center inside
+        the volume. Voxel membership is decided by transforming coordinates into the
+        cube's local frame and checking the L∞ norm against the half-edge length.
+
+        Returns:
+            Boolean tensor of shape ``shape`` where ``True`` marks voxels inside the
+            cube.
+        """
+        # Random center inside volume
+        center = torch.stack(
+            [
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[0] - 1),
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[1] - 1),
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[2] - 1),
+            ]
+        )
+
+        # Random circumradius
+        radius = (
+            torch.rand((), device=self.device, generator=self.generator)
+            * (self.radius_range[1] - self.radius_range[0])
+            + self.radius_range[0]
+        )
+
+        # Random rotation via QR decomposition of a random normal matrix
+        rand_mat = torch.randn(3, 3, device=self.device, generator=self.generator)
+        Q, _ = torch.linalg.qr(rand_mat)
+        if torch.det(Q) < 0:
+            Q = -Q
+
+        # Circumradius of a unit cube (half-edge = 1) is √3, so half-edge = r/√3
+        half_edge = radius / (3.0**0.5)
+
+        # Rotate voxel coords into cube frame: p' = Q^T @ (p - center)
+        # In row-vector convention: (p - center) @ Q achieves the same result.
+        pts_local = (self.voxel_grid - center) @ Q  # (X, Y, Z, 3)
+        return pts_local.abs().amax(dim=-1) <= half_edge
+
+    @classmethod
+    def from_config(cls, config: Config) -> Self:
+        """Constructs cube label map instance from configuration object."""
+        diameter_range = (
+            config.geom.cube_diameter.min,
+            config.geom.cube_diameter.max,
+        )
+        vf_range = (
+            None
+            if config.geom.cube_num is not None
+            else (config.geom.cube_vf.min, config.geom.cube_vf.max)
+        )
+        return cls(
+            shape=config.geom.input_shape,
+            fov=config.geom.fov,
+            num_objects=config.geom.cube_num,
+            vf_range=vf_range,
+            diameter_range=diameter_range,
+            allow_overlap=config.geom.cube_allow_overlap,
+            seed=config.seed,
+            device=config.device,
+        )
 
 
-class Toroids:
-    pass
+class Toroids(ObjectGeometry):
+    """Random toroid mask generator.
+
+    Generates random toroidal label masks with set volume fraction. Each torus is placed
+    at a random position in the volume with a random orientation. The major radius (R,
+    distance from the torus center to the tube center) is drawn uniformly from
+    ``diameter_range`` after converting from mm to voxels. The tube radius (r) is set
+    as a fraction of the major radius sampled uniformly from ``tube_ratio_range``.
+
+    Attributes:
+        shape: Matrix size of the toroid label map ``(X, Y, Z)``.
+        fov: Field of view in mm, used to compute voxel size.
+        num_objects: Fixed number of toroids to generate. Mutually exclusive with
+            ``vf_range``.
+        vf_range: Range of target volume fractions. Toroids are added until the volume
+            fraction is reached. Mutually exclusive with ``num_objects``.
+        diameter_range: Range of major diameters (2*R) in mm.
+        tube_ratio_range: Range of r/R, where r is the tube radius. Must be in (0, 1)
+            for a non-self-intersecting ring torus.
+        allow_overlap: If False, toroids are only added if they contribute new voxels.
+        device: Target compute device, e.g. 'cuda' or 'cpu'.
+        seed: Random seed for reproducibility.
+
+    Examples:
+        Create 100 random toroid label maps and save to disk:
+
+        >>> shape = (128, 128, 128)
+        >>> fov = (32.0, 32.0, 32.0)
+        >>> num_toroids = 5
+        >>> fname = "<fname-zarr>"
+        >>> toroid_map = Toroids(shape, fov, num_toroids)
+        >>> toroid_map(100, fname)
+    """
+
+    def __init__(
+        self,
+        shape: tuple[int, int, int] = (128, 128, 128),
+        fov: tuple[float, float, float] = (1.0, 1.0, 1.0),
+        num_objects: int | None = None,
+        vf_range: tuple[float, float] | None = (0.05, 0.1),
+        diameter_range: tuple[float, float] = (2.0, 10.0),
+        tube_ratio_range: tuple[float, float] = (0.1, 0.4),
+        allow_overlap: bool = True,
+        device: str = "cpu",
+        seed: int | None = None,
+    ) -> None:
+        super().__init__(
+            shape,
+            fov,
+            num_objects,
+            vf_range,
+            diameter_range,
+            allow_overlap,
+            device,
+            seed,
+        )
+        self.tube_ratio_range = tube_ratio_range
+
+    @property
+    def attrs(self) -> dict[str, Any]:
+        """Metadata for ZARR/NIfTI storage."""
+        return {
+            **super().attrs,
+            "tube_ratio_range": self.tube_ratio_range,
+        }
+
+    def _mask_object(self) -> torch.Tensor:
+        """Generate a binary mask of a randomly placed and oriented torus.
+
+        A random major radius R is sampled from ``radius_range``, a random tube radius
+        r is derived by multiplying R by a value from ``tube_ratio_range``, and a random
+        rotation is drawn via QR decomposition. The torus symmetry axis is the local
+        z-axis. Voxel membership uses the standard torus equation
+        ``(sqrt(x'^2 + y'^2) - R)^2 + z'^2 <= r^2`` in local coordinates.
+
+        Returns:
+            Boolean tensor of shape ``shape`` where ``True`` marks voxels inside the
+            torus.
+        """
+        # Random center inside volume
+        center = torch.stack(
+            [
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[0] - 1),
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[1] - 1),
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[2] - 1),
+            ]
+        )
+
+        # Random major radius R (distance from torus center to tube center)
+        major_radius = (
+            torch.rand((), device=self.device, generator=self.generator)
+            * (self.radius_range[1] - self.radius_range[0])
+            + self.radius_range[0]
+        )
+
+        # Random tube radius r = tube_ratio * R
+        tube_ratio = (
+            torch.rand((), device=self.device, generator=self.generator)
+            * (self.tube_ratio_range[1] - self.tube_ratio_range[0])
+            + self.tube_ratio_range[0]
+        )
+        tube_radius = tube_ratio * major_radius
+
+        # Random rotation via QR decomposition of a random normal matrix
+        rand_mat = torch.randn(3, 3, device=self.device, generator=self.generator)
+        Q, _ = torch.linalg.qr(rand_mat)
+        if torch.det(Q) < 0:
+            Q = -Q
+
+        # Transform voxel coords into torus local frame; symmetry axis is local z
+        pts_local = (self.voxel_grid - center) @ Q  # (X, Y, Z, 3)
+
+        # Torus equation: (sqrt(x'^2 + y'^2) - R)^2 + z'^2 <= r^2
+        xy_dist = torch.sqrt(pts_local[..., 0] ** 2 + pts_local[..., 1] ** 2)
+        dist_sq = (xy_dist - major_radius) ** 2 + pts_local[..., 2] ** 2
+        return dist_sq <= tube_radius**2
+
+    @classmethod
+    def from_config(cls, config: Config) -> Self:
+        """Constructs toroid label map instance from configuration object."""
+        diameter_range = (
+            config.geom.toroid_diameter.min,
+            config.geom.toroid_diameter.max,
+        )
+        tube_ratio_range = (
+            config.geom.toroid_tube_ratio.min,
+            config.geom.toroid_tube_ratio.max,
+        )
+        vf_range = (
+            None
+            if config.geom.toroid_num is not None
+            else (config.geom.toroid_vf.min, config.geom.toroid_vf.max)
+        )
+        return cls(
+            shape=config.geom.input_shape,
+            fov=config.geom.fov,
+            num_objects=config.geom.toroid_num,
+            vf_range=vf_range,
+            diameter_range=diameter_range,
+            tube_ratio_range=tube_ratio_range,
+            allow_overlap=config.geom.toroid_allow_overlap,
+            seed=config.seed,
+            device=config.device,
+        )

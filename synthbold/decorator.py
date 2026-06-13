@@ -1,7 +1,4 @@
-"""Decorators.
-
-This module provides reusable decorators for tensor validation and manipulation.
-"""
+"""Reusable decorators for tensor validation and manipulation."""
 
 from collections.abc import Callable
 from functools import wraps

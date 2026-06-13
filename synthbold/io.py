@@ -1,14 +1,11 @@
-"""Utility functions.
-
-This module provides reusable utilities to handle common tensor validation and
-manipulation tasks.
-"""
+"""Reusable utilities to handle common tensor validation and manipulation tasks."""
 
 from pathlib import Path
 from typing import Any, cast
 
 import nibabel as nb
 import numpy as np
+import torch
 import zarr
 from nibabel.freesurfer.io import write_geometry
 from skimage import measure
@@ -23,7 +20,14 @@ __all__ = [
 
 
 def load_nifti(fname: str | Path) -> tuple[np.ndarray, np.ndarray, nb.Nifti1Header]:
-    """Load a NifTI file and return it as a Nifti1Image."""
+    """Load a NifTI file and return it as a Nifti1Image.
+
+    Args:
+        fname: Path to the NifTI file.
+
+    Returns:
+        Tuple of the data array, affine matrix, and header.
+    """
     img = cast(nb.Nifti1Image, nb.load(fname))
     if not isinstance(img, nb.Nifti1Image):
         raise TypeError(f"Expected Nifti1Image, got {type(img)}.")
@@ -31,7 +35,14 @@ def load_nifti(fname: str | Path) -> tuple[np.ndarray, np.ndarray, nb.Nifti1Head
 
 
 def load_zarr(fname: str | Path) -> tuple[np.ndarray, dict[str, Any]]:
-    """Load map data from ZARR format."""
+    """Load map data from ZARR format.
+
+    Args:
+        fname: Path to the ZARR file.
+
+    Returns:
+        Tuple of the data array and attributes.
+    """
     z = zarr.open(fname, mode="r")
     if isinstance(z, zarr.Group):
         if len(z) != 1:
@@ -48,7 +59,9 @@ def load_zarr(fname: str | Path) -> tuple[np.ndarray, dict[str, Any]]:
     return data, attrs
 
 
-def save_zarr(fname: str | Path, data: np.ndarray, attrs: dict[str, Any]) -> None:
+def save_zarr(
+    fname: str | Path, data: np.ndarray | torch.Tensor, attrs: dict[str, Any]
+) -> None:
     """Save data to disk in ZARR format.
 
     Args:
@@ -58,6 +71,10 @@ def save_zarr(fname: str | Path, data: np.ndarray, attrs: dict[str, Any]) -> Non
     """
     fname = Path(fname)
     fname.parent.mkdir(exist_ok=True, parents=True)
+
+    # Convert torch.Tensor to numpy array
+    if isinstance(data, torch.Tensor):
+        data = data.detach().cpu().numpy()
 
     # Ensure data is a NumPy array for ZARR
     data_array = np.asarray(data)
@@ -83,28 +100,30 @@ def save_zarr(fname: str | Path, data: np.ndarray, attrs: dict[str, Any]) -> Non
 
 def save_nifti(
     fname: str | Path,
-    data: np.ndarray,
+    data: np.ndarray | torch.Tensor,
     affine: np.ndarray | None = None,
     header: nb.Nifti1Header | None = None,
     permute: bool = False,
     niivue: bool = False,
 ) -> None:
-    """Save a NumPy array to a NIfTI file. If `permute` is True, the first and last axes
-    of `data` are swapped. This is useful when the data has shape ``(N, X, Y, Z)`` but
-    needs to be saved as ``(X, Y, Z, N)`` to store 3D volumes as a time series.
+    """Save a NumPy array to a NIfTI file. If `permute` is True, the first and last
+    axes of `data` are swapped. This is useful when the data has shape ``(N, X, Y, Z)``
+    but needs to be saved as ``(X, Y, Z, N)`` to store 3D volumes as a time series.
 
     Args:
-        fname:
-        data
-        affine
-        header
-        permute
-        niivue
+        fname: File name for saving the NIfTI file.
+        data: Data array to save.
+        affine: Affine matrix for the NIfTI file.
+        header: Header for the NIfTI file.
+        permute: Whether to permute the axes of the data.
+        niivue: Whether to convert the data for fast visualization with Niivue.
 
     Note:
-        For fast visualization with Niivue, the flag converts the numpy array to integer
-        format and scales the data to maximum integer range.
+        For fast visualization with Niivue, the flag converts the numpy array to
+        integer format and scales the data to maximum integer range.
     """
+    if isinstance(data, torch.Tensor):
+        data = data.detach().cpu().numpy()
     if affine is None:
         affine = np.eye(4)
     if not isinstance(data, np.ndarray):
@@ -140,7 +159,7 @@ def save_nifti(
     nb.save(img, fname)
 
 
-def save_mesh(fname: str | Path, data: np.ndarray) -> None:
+def save_mesh(fname: str | Path, data: np.ndarray | torch.Tensor) -> None:
     """Creates a mesh from a binary array using the marching cubes algorithm and saves
     the mesh to disk in FreeSurfer binary format.
 
@@ -150,6 +169,10 @@ def save_mesh(fname: str | Path, data: np.ndarray) -> None:
     """
     fname = Path(fname)
     fname.parent.mkdir(exist_ok=True, parents=True)
+
+    # Convert torch.Tensor to numpy array
+    if isinstance(data, torch.Tensor):
+        data = data.detach().cpu().numpy()
 
     # Check data type and array dimensions
     if not isinstance(data, np.ndarray):

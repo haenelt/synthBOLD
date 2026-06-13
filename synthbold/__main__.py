@@ -1,4 +1,4 @@
-"""CLI entry point for synthBOLD label map generation."""
+"""CLI entry point for synthBOLD data generation."""
 
 import argparse
 import logging
@@ -6,7 +6,7 @@ from pathlib import Path
 
 from synthbold.base import BaseGeometry
 from synthbold.config import Config
-from synthbold.geometries import Cylinders, Shapes
+from synthbold.geometries import Cubes, Cylinders, Shapes, Spheres, Tetrahedra, Toroids
 
 
 def setup_logging(level: int = logging.INFO) -> None:
@@ -21,7 +21,7 @@ def setup_logging(level: int = logging.INFO) -> None:
 def get_parser() -> argparse.ArgumentParser:
     """Build and return the CLI argument parser."""
     parser = argparse.ArgumentParser(
-        prog="synthbold", description="Generate synthetic label maps and save to disk."
+        prog="synthbold", description="Generate synthetic data and save to disk."
     )
     add = parser.add_argument
     add(
@@ -35,7 +35,7 @@ def get_parser() -> argparse.ArgumentParser:
         "-l",
         "--label",
         required=True,
-        choices=["tissue", "vessel"],
+        choices=["shapes", "cylinders", "spheres", "tetrahedra", "cubes", "toroids"],
         help="Type of label map to generate.",
     )
     add("--n-sample", type=int, default=1, help="Number of samples (default: 1).")
@@ -45,7 +45,7 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """Parse CLI arguments, build the label generator, and run synthesis."""
+    """Parse CLI arguments, build the data generator, and run synthesis."""
     setup_logging()
     parser = get_parser()
     args = parser.parse_args()
@@ -59,13 +59,24 @@ def main() -> None:
     if args.seed is not None:
         config = config.model_copy(update={"seed": args.seed})
 
-    generator: BaseGeometry = (
-        Shapes.from_config(config)
-        if args.label == "tissue"
-        else Cylinders.from_config(config)
-    )
+    generator: BaseGeometry
+    match args.label:
+        case "shapes":
+            generator = Shapes.from_config(config)
+        case "cylinders":
+            generator = Cylinders.from_config(config)
+        case "tetrahedra":
+            generator = Tetrahedra.from_config(config)
+        case "spheres":
+            generator = Spheres.from_config(config)
+        case "cubes":
+            generator = Cubes.from_config(config)
+        case "toroids":
+            generator = Toroids.from_config(config)
+        case _:
+            raise ValueError(f"Unknown label: {args.label}")
 
-    logger.info("Generating %d %s label map(s)", args.n_sample, args.label)
+    logger.info("Generating %d maps (%s)", args.n_sample, args.label)
     generator(n_sample=args.n_sample, fname=args.output)
 
 

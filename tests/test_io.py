@@ -4,7 +4,7 @@ import nibabel as nb
 import numpy as np
 import pytest
 
-from synthbold.utils import load_nifti, save_nifti
+from synthbold.io import load_nifti, save_nifti
 
 
 def test_load_nifti(tmp_path: str) -> None:

@@ -12,7 +12,11 @@ __all__ = ["make_gif", "render_3d"]
 
 
 def make_gif(
-    fname: Path, data: torch.Tensor, cmap: str = "tab20", fps: int = 2
+    fname: Path,
+    data: torch.Tensor,
+    cmap: str = "tab20",
+    mip: bool = False,
+    fps: int = 2,
 ) -> None:
     """Make a GIF animation from the middle axial slice of a batch of 3D volumes.
 
@@ -23,19 +27,27 @@ def make_gif(
         fname: Output file path for the saved GIF.
         data: Batch of 3D volumes with shape ``(N, X, Y, Z)``.
         cmap: Matplotlib colormap name.
+        mip: Whether to display a maximum intensity projection.
         fps: Frames per second for the output GIF.
     """
     fig, ax = plt.subplots()
     ax.axis("off")
 
     # Start with first slice of first volume
-    slice_0 = data[0][:, :, data.shape[-1] // 2].detach().cpu().numpy()
-    im = ax.imshow(slice_0, cmap=cmap, animated=True)
+    volume = data[0]
+    if mip:
+        slice_0 = torch.max(volume, dim=-1).values
+    else:
+        slice_0 = volume[:, :, volume.shape[-1] // 2]
+    im = ax.imshow(slice_0.detach().cpu().numpy(), cmap=cmap, animated=True)
 
     # Get frames (one frame per batch element)
     frames = []
-    for vol in data:
-        frames.append(vol[:, :, vol.shape[-1] // 2])
+    for volume in data:
+        if mip:
+            frames.append(torch.max(volume, dim=-1).values)
+        else:
+            frames.append(volume[:, :, volume.shape[-1] // 2])
 
     # Animation function
     def update(frame_index: int) -> list:
@@ -73,7 +85,7 @@ def render_3d(
     if mask.ndim != 3:
         raise ValueError(f"Expected 3D tensor, got shape {tuple(mask.shape)}.")
 
-    mask_np = mask.detach().cpu().numpy().astype(bool)
+    mask_np = mask.cpu().numpy().astype(bool)
     verts, faces, _, _ = measure.marching_cubes(mask_np)
 
     mesh = Poly3DCollection(verts[faces], alpha=alpha)
