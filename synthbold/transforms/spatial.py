@@ -467,7 +467,7 @@ class SphericalMask(Transform):
         # Sample random radii: (B, 1, 1, 1)
         r_min, r_max = self.radius_range
         radii = torch.empty((B, 1, 1, 1), device=self.device).uniform_(
-            r_min, r_max + 1, generator=self.generator
+            r_min, r_max, generator=self.generator
         )
 
         # Sample random centers: (B, 3)

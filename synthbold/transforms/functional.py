@@ -109,11 +109,13 @@ def apply_deformation(
         indexing="ij",
     )
 
-    # Normalize displacement to grid_sample's [-1, 1] coordinate space
+    # Normalize displacement to grid_sample's [-1, 1] coordinate space. With
+    # align_corners=True, a step of one voxel corresponds to 2 / (size - 1) in
+    # normalized coordinates.
     disp_norm = displacement.clone()
-    disp_norm[..., 0] /= X / 2
-    disp_norm[..., 1] /= Y / 2
-    disp_norm[..., 2] /= Z / 2
+    disp_norm[..., 0] /= (X - 1) / 2
+    disp_norm[..., 1] /= (Y - 1) / 2
+    disp_norm[..., 2] /= (Z - 1) / 2
 
     # grid_sample's last dimension is ordered (x, y, z), mapping to the (W, H, D)
     # input axes, i.e. (Z, Y, X) for data of shape (B, 1, X, Y, Z)

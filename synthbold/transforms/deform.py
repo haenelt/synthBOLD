@@ -150,17 +150,23 @@ class CaliberDeformation(Transform):
             Tensor of the same shape with inserted caliber deformations.
         """
         edt = DistanceTransformEDT()
-        max_val = int(data.max().item())
+        B = data.shape[0]
+        labels = torch.unique(data)
+        labels = labels[labels != 0]
         result = torch.zeros(data.shape, dtype=data.dtype, device=data.device)
 
-        # Loop over labels
-        for i in range(1, max_val + 1):
+        # Loop over labels present anywhere in the batch
+        for label in labels:
+            i = label.item()
+            present = (data == i).reshape(B, -1).any(dim=1).view(B, 1, 1, 1)
             mask = ~(data == i)
             distance_map = edt(mask)
-            # Apply radius field
+            # Apply radius field, restricted to batch elements where the label
+            # is actually present (EDT of an all-background volume is non-zero)
             data_transformed = torch.as_tensor(
                 distance_map <= radius_field, device=data.device, dtype=torch.float32
             )
+            data_transformed = data_transformed * present
             result[data_transformed > 0] = i
 
         return result

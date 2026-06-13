@@ -572,8 +572,8 @@ def test_sphericalmask_sample_large_radius_all_true() -> None:
 
 
 def test_sphericalmask_sample_zero_radius_only_center_voxel() -> None:
-    # Sampled radii lie in [0, 1), so only the center voxel itself (squared distance 0)
-    # falls within the mask.
+    # With radius_range=(0.0, 0.0), the sampled radius is exactly 0, so only the
+    # center voxel itself (squared distance 0) falls within the mask.
     sm = SphericalMask(radius_range=(0.0, 0.0), device="cpu", seed=0)
     mask = sm.sample((4, *SMALL_SHAPE))
     counts = mask.flatten(1).sum(dim=1)

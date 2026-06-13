@@ -201,3 +201,26 @@ def test_caliberdeformation_apply_preserves_shape() -> None:
     radius_field = cd.sample(data.shape)
     out = CaliberDeformation.apply(data, radius_field)
     assert out.shape == data.shape
+
+
+def test_caliberdeformation_apply_missing_label_not_introduced() -> None:
+    # Label 2 is absent from the input (a gap, as can occur with ObjectGeometry).
+    # It must not appear in the output, even with a large radius field.
+    data = torch.zeros(1, *SMALL_SHAPE)
+    data[0, 1, 1, 1] = 1.0
+    data[0, 6, 6, 6] = 3.0
+    radius_field = torch.ones(1, *SMALL_SHAPE)
+    out = CaliberDeformation.apply(data, radius_field)
+    assert 2 not in out.unique().tolist()
+
+
+def test_caliberdeformation_apply_label_not_leaked_across_batch() -> None:
+    # Label 2 is present in batch element 0 but absent from batch element 1.
+    # It must not leak into batch element 1's output.
+    data = torch.zeros(2, *SMALL_SHAPE)
+    data[0, 1, 1, 1] = 1.0
+    data[0, 6, 6, 6] = 2.0
+    data[1, 1, 1, 1] = 1.0
+    radius_field = torch.ones(2, *SMALL_SHAPE)
+    out = CaliberDeformation.apply(data, radius_field)
+    assert 2 not in out[1].unique().tolist()

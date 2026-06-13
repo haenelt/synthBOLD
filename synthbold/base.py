@@ -321,9 +321,9 @@ class Model(ABC, RandomGeneratorMixin):
 
         # save to disk
         if fname is not None and fname.suffix == ".zarr":
-            save_zarr(fname, data.cpu().numpy(), self.attrs)
+            save_zarr(fname, result.cpu().numpy(), self.attrs)
         elif fname is not None and fname.suffix == ".nii":
-            save_nifti(fname, data.cpu().numpy(), permute=True)
+            save_nifti(fname, result.cpu().numpy(), permute=True)
 
         return result
 
