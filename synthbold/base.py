@@ -303,16 +303,12 @@ class Model(ABC, RandomGeneratorMixin):
     """Abstract base class for making single models callable.
 
     Args:
-        config: Configuration object.
         device: PyTorch device for tensor allocation and RNG.
         seed: Integer seed for reproducible output; ``None`` for random.
     """
 
-    def __init__(
-        self, config: Config, device: str = "cpu", seed: int | None = None
-    ) -> None:
+    def __init__(self, *, device: str = "cpu", seed: int | None = None) -> None:
         super().__init__(seed=seed, device=device)
-        self.config = config
 
     def __call__(self, data: torch.Tensor, fname: Path | None = None) -> torch.Tensor:
         """Generate data from input tensor and optionally save generated data to disk in

@@ -4,6 +4,7 @@ synthBOLD package to parse and ensure data synthesis parameters are correct."""
 from pathlib import Path
 from typing import Self
 
+import numpy as np
 import yaml
 from pydantic import (
     BaseModel,
@@ -51,6 +52,7 @@ class GeometryParams(BaseModel):
         input_shape: Shape of source volume.
         output_shape: Shape of target volume (after static dephasing downsampling).
         fov: Field-of-view of source volume in mm.
+        padding: Voxel padding for calculating field perturbation.
         cylinder_num: Number of generated cylinders.
         cylinder_vf: Volume fraction of cylinders.
         cylinder_diameter: Range of cylinder diameters in mm.
@@ -73,6 +75,7 @@ class GeometryParams(BaseModel):
     input_shape: tuple[int, int, int] = (128, 128, 128)
     output_shape: tuple[int, int, int] = (32, 32, 32)
     fov: tuple[float, float, float] = (32.0, 32.0, 32.0)
+    padding: int = 64
 
     # object geometry: cylinders
     cylinder_num: int | None = None
@@ -130,8 +133,8 @@ class PhysioParams(BaseModel):
         label_displacement_shape: Shape of noise map for smooth displacement field.
         label_J: Number of tissue classes.
         label_scale: Scale factor of the noise map.
-        tissue_mu: Mean intensity range for different tissue compartments.
-        tissue_std: Standard deviation range for intensities within tissue types.
+        background_mu: Mean intensity range for different tissue compartments.
+        background_std: Standard deviation range for intensities within tissue types.
 
     Note:
         num_vessels and cbv are mutually exclusive.
@@ -140,8 +143,32 @@ class PhysioParams(BaseModel):
     label_displacement_shape: tuple[int, int, int] = (4, 4, 4)
     label_J: int = 8
     label_scale: float = 0.2
-    tissue_mu: Range = Range(min=10.0, max=100.0)
-    tissue_std: Range = Range(min=5.0, max=10.0)
+    background_mu: Range = Range(min=10.0, max=100.0)
+    background_std: Range = Range(min=5.0, max=10.0)
+
+
+class PhysicsParams(BaseModel):
+    """Parameters governing the MRI signal generation.
+
+    Args:
+    B0: Static magnetic field strength in Tesla.
+    gamma: Gyromagnetic ratio in ms^-1 T^-1
+    chi: Vessel susceptibilities (difference between IV and EV) in ppm.
+    T2: Range of T2 relaxation times in ms.
+    TE: Range of echo times in ms.
+    theta: Range of polar angles in radians for B0 orientation.
+    phi: Range of azimuthal angles in radians for B0 orientation.
+    spin_echo: Time of spin echo in ms if exists.
+    """
+
+    B0: float = 7.0
+    gamma: float = 2.675221e5
+    chi: Range = Range(min=-0.01e-6, max=0.1e-6)
+    T2: Range = Range(min=5.0, max=50.0)
+    TE: Range = Range(min=5.0, max=100.0)
+    theta: Range = Range(min=0.0, max=np.pi)
+    phi: Range = Range(min=0.0, max=2 * np.pi)
+    spin_echo: float | None = 64.0
 
 
 class TransformParams(BaseModel):

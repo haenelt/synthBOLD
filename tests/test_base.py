@@ -304,9 +304,7 @@ def test_object_geometry_attrs_keys() -> None:
 
 def test_model_init() -> None:
     """Test Model initialization and inherited mixin properties."""
-    config = Config()
-    model = DummyModel(config, device="cpu", seed=42)
-    assert model.config is config
+    model = DummyModel(device="cpu", seed=42)
     assert model.seed == 42
     assert model.device == torch.device("cpu")
     assert model.generator is not None
@@ -315,7 +313,7 @@ def test_model_init() -> None:
 
 def test_model_call() -> None:
     """Test the Model __call__ delegates to forward."""
-    model = DummyModel(Config(), device="cpu")
+    model = DummyModel(device="cpu")
     input_data = torch.ones((1, 2, 2, 2))
 
     output = model(input_data)
@@ -325,7 +323,7 @@ def test_model_call() -> None:
 
 
 def test_model_attrs_values() -> None:
-    model = DummyModel(Config(), device="cpu", seed=7)
+    model = DummyModel(device="cpu", seed=7)
     attrs = model.attrs
     assert attrs["generator"] == "DummyModel"
     assert attrs["seed"] == 7
@@ -334,7 +332,7 @@ def test_model_attrs_values() -> None:
 
 
 def test_model_call_save_zarr(tmp_path: Path) -> None:
-    model = DummyModel(Config(), device="cpu")
+    model = DummyModel(device="cpu")
     input_data = torch.ones((1, 2, 2, 2))
     fname = tmp_path / "out.zarr"
 
@@ -345,7 +343,7 @@ def test_model_call_save_zarr(tmp_path: Path) -> None:
 
 
 def test_model_call_save_nifti(tmp_path: Path) -> None:
-    model = DummyModel(Config(), device="cpu")
+    model = DummyModel(device="cpu")
     input_data = torch.ones((1, 2, 2, 2))
     fname = tmp_path / "out.nii"
 
