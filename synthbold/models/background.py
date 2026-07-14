@@ -22,7 +22,11 @@ class BackgroundModel(Model):
     ignored.
 
     Args:
-        config: Configuation object.
+        mu_range: Range of values to sample the mean intensity from.
+        std_range: Range of values to sample the standard deviation from.
+        transforms: List of transformations to apply.
+        device: Target compute device ("cuda" or "cpu").
+        seed: Random seed for reproducibility.
 
     Notes:
         The generated background maps can be returned as a PyTorch tensor and saved to
@@ -31,8 +35,9 @@ class BackgroundModel(Model):
 
     Examples:
         >>> data_tensor = torch.randint(1, 21, (10, 10, 10, 10))
-        >>> config = Config()
-        >>> background_model = BackgroundModel.from_config(config)
+        >>> background_model = BackgroundModel(
+        >>>     mu_range=(0.0, 1.0), std_range=(0.0, 0.5)
+        >>> )
         >>> sample_map = background_model(data_tensor)
     """
 

@@ -368,6 +368,10 @@ class GibbsRinging(Transform):
         super().__init__(device=device, seed=seed)
         if not all(0.0 < c <= 1.0 for c in cutoff_range):
             raise ValueError(f"cutoff_range must be within (0, 1], got {cutoff_range}.")
+        if cutoff_range[0] > cutoff_range[1]:
+            raise ValueError(
+                f"Minimum must not be greater than maximum cutoff, got {cutoff_range}."
+            )
         self.cutoff_range = cutoff_range
 
     def sample(self, shape: tuple[int, ...]) -> torch.Tensor:
@@ -446,6 +450,10 @@ class SphericalMask(Transform):
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
+        if radius_range[0] > radius_range[1]:
+            raise ValueError(
+                f"Minimum must not be greater than maximum radius, got {radius_range}."
+            )
         self.radius_range = radius_range
         self.sphere_prob = sphere_prob
 

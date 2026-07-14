@@ -5,6 +5,7 @@
     api/config
     api/decorator
     api/geometries
+    api/models
     api/transforms
     api/io
     api/visualize

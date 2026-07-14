@@ -313,7 +313,7 @@ class Model(ABC, RandomGeneratorMixin):
     def __call__(self, data: torch.Tensor, fname: Path | None = None) -> torch.Tensor:
         """Generate data from input tensor and optionally save generated data to disk in
         ZARR or NIfTI format."""
-        result: torch.Tensor = self.forward(data)
+        result = self.forward(data)
 
         # save to disk
         if fname is not None and fname.suffix == ".zarr":

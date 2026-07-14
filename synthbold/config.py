@@ -151,7 +151,7 @@ class PhysicsParams(BaseModel):
     """Parameters governing the MRI signal generation.
 
     Args:
-    B0: Static magnetic field strength in Tesla.
+    b0: Static magnetic field strength in Tesla.
     gamma: Gyromagnetic ratio in ms^-1 T^-1
     chi: Vessel susceptibilities (difference between IV and EV) in ppm.
     T2: Range of T2 relaxation times in ms.
@@ -161,7 +161,7 @@ class PhysicsParams(BaseModel):
     spin_echo: Time of spin echo in ms if exists.
     """
 
-    B0: float = 7.0
+    b0: float = 7.0
     gamma: float = 2.675221e5
     chi: Range = Range(min=-0.01e-6, max=0.1e-6)
     T2: Range = Range(min=5.0, max=50.0)
@@ -232,16 +232,16 @@ class TransformParams(BaseModel):
     perlin_base_shape: tuple[int, int, int] = (4, 4, 4)
     perlin_octaves: int = 4
     perlin_persistence: float = 0.5
-    perlin_amplitude: Range = Range(min=0.0, max=1.0)
+    perlin_amplitude: Range = Range(min=0.0, max=0.1)
 
     # transform: PoissonNoise
-    pnoise_peak: Range = Range(min=1.0, max=50.0)
+    pnoise_peak: Range = Range(min=0.0001, max=0.001)
 
     # transform: RicianNoise
     rnoise_std: Range = Range(min=0.0, max=2.0)
 
     # transform: NoncentralChiNoise
-    ncchi_std: Range = Range(min=0.0, max=2.0)
+    ncchi_std: Range = Range(min=0.0, max=0.000000001)
     ncchi_dof: int = 4
 
     # transform: SpeckleNoise
@@ -251,7 +251,7 @@ class TransformParams(BaseModel):
     flip_prob: float = 0.5
 
     # transform: SphericalMask / DeformedSphericalMask
-    sphere_radius: Range = Range(min=30.0, max=50.0)
+    sphere_radius: Range = Range(min=50.0, max=80.0)
     sphere_prob: float = 1.0
     sphere_deform_amplitude: float = 0.3
     sphere_deform_shape: tuple[int, int, int] = (4, 4, 4)
@@ -275,7 +275,7 @@ class TransformParams(BaseModel):
 
     # transform: CaliberDeformation
     caliber_sigma: float = 10.0
-    caliber_alpha: float = 1.0
+    caliber_alpha: float = 2.0
 
 
 class Config(BaseModel):
@@ -287,6 +287,7 @@ class Config(BaseModel):
     device: str = "cpu"  # Computation device to use.
     geom: GeometryParams = GeometryParams()
     physio: PhysioParams = PhysioParams()
+    physics: PhysicsParams = PhysicsParams()
     transform: TransformParams = TransformParams()
 
     def save(self, path: str | Path) -> None:
