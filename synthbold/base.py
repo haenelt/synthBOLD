@@ -35,7 +35,7 @@ class RandomGeneratorMixin:
     """
 
     def __init__(
-        self, seed: int | None, device: str | torch.device = "cuda", **kwargs: Any
+        self, seed: int | None, device: str | torch.device = "cpu", **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
         self.seed = seed
@@ -84,7 +84,7 @@ class BaseGeometry(ABC, RandomGeneratorMixin):
         self,
         shape: tuple[int, ...],
         *,
-        device: str | torch.device = "cuda",
+        device: str | torch.device = "cpu",
         seed: int | None = None,
     ) -> None:
         super().__init__(seed=seed, device=device)
@@ -257,9 +257,8 @@ class ObjectGeometry(BaseGeometry, ABC):
             max_iter = total_voxels * 10
             while occupied / total_voxels < vf and i < max_iter:
                 i += 1
-                volume, _ = self._add_object(i, volume)
-                # recompute occupied voxels
-                occupied = int(torch.count_nonzero(volume).item())
+                volume, new_voxels = self._add_object(i, volume)
+                occupied += new_voxels
         else:
             raise ValueError(
                 "Either number of objects or volume fraction must be specified."
@@ -280,8 +279,10 @@ class ObjectGeometry(BaseGeometry, ABC):
         Returns:
             A tuple with the following elements:
                 - Updated volume with the object inserted.
-                - Number of voxels newly assigned to this object (i.e., voxels
-                  written during this operation).
+                - Number of voxels that transitioned from unoccupied (0) to occupied
+                  as a result of this operation. When `allow_overlap` is True, an
+                  object may cover voxels already claimed by an earlier object;
+                  those voxels are relabeled but do not count towards this total.
         """
         # Generate object mask. If failed, do nothing.
         mask = self._mask_object()
@@ -289,7 +290,7 @@ class ObjectGeometry(BaseGeometry, ABC):
             return volume, 0
         if not self.allow_overlap:
             mask = mask & (volume == 0)
-        new_voxels = int(torch.count_nonzero(mask).item())
+        new_voxels = int(torch.count_nonzero(mask & (volume == 0)).item())
         volume[mask] = label
         return volume, new_voxels
 

@@ -17,7 +17,7 @@ class PerturbationModel(Model):
     perturbation maps (ΔBz).
 
     Each vessel (and other geometric objects) is assigned a random susceptibility value
-    and each sample is given a randnom B0 field orientation, from which the resulting
+    and each sample is given a random B0 field orientation, from which the resulting
     magnetic field perturbation is computed using FFT convolution with a dipole kernel.
 
     Args:
@@ -38,7 +38,7 @@ class PerturbationModel(Model):
         theta_range: tuple[float, float],
         phi_range: tuple[float, float],
         padding: int | tuple[int, int, int],
-        device: str = "str",
+        device: str = "cpu",
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
@@ -81,7 +81,7 @@ class PerturbationModel(Model):
                 n_perturber, device=self.device, dtype=torch.float32
             ).uniform_(chi_low, chi_high, generator=self.generator)
 
-            # Assign suscepitbility values
+            # Assign susceptibility values
             mask = data > 0
             chi[mask] = dchis[data[mask].long() - 1]
 

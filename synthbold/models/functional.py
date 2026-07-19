@@ -47,7 +47,7 @@ def merge_labels(*labels: torch.Tensor) -> torch.Tensor:
 
 
 def spherical_to_cartesian(theta: torch.Tensor, phi: torch.Tensor) -> torch.Tensor:
-    """Convert spherical coordintes (theta, phi) to Cartesian unit vectors.
+    """Convert spherical coordinates (theta, phi) to Cartesian unit vectors.
 
     Args:
         theta: Polar angle in radians of shape ``(B)``.
@@ -60,7 +60,7 @@ def spherical_to_cartesian(theta: torch.Tensor, phi: torch.Tensor) -> torch.Tens
     Notes:
         - Assumes right-handed coordinate system:
             x = sin(theta) * cos(phi)
-            y = sin(theta) * cos(phi)
+            y = sin(theta) * sin(phi)
             z = cos(theta)
         - The returned vectors are normalized to unit length.
     """

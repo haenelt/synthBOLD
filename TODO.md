@@ -2,11 +2,17 @@
   - [ ] mix vessels with other shapes (use merge_labels)
   - [ ] output chi, theta, phi as well
 - [ ] SignalModel
-
+- [ ] synthbold.pipeline.SynthPipeline
+  - [ ] make pipeline
+  - [ ] make independent sub-seeds for each label images
 - [ ] normalization
   - [ ] psc
   - [ ] z-score
   - [ ] map the 1st and 99th percentiles to 0 and 1, respectively
+- [ ] add logging
+
+- [ ] bug fixes
+  - [ ] avoid that vessels are cut when deformed
 
 - [ ] Pipeline: switch on/off single transforms
 - [ ] geometries: not only uniform distributions (for generating objects)

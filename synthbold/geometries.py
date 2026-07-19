@@ -102,7 +102,7 @@ class Shapes(BaseGeometry):
         transform input noise images.
 
         Args:
-            data: Noise iamge of shape ``(N, X, Y, Z)``.
+            data: Noise image of shape ``(N, X, Y, Z)``.
 
         Returns:
             Deformed noise images.
@@ -183,9 +183,9 @@ class Cylinders(ObjectGeometry):
     def _mask_object(self) -> torch.Tensor | None:
         """Generate a binary mask of a randomly oriented cylinder. The cylinder is
         defined by (1) a random axis direction, (2) a random point inside the volume,
-        and (3) a random radius. The cylider is extended along its axis to span the
-        full volume by intersecting an infinite line with the axis-aligned boudig box.
-        The resulting segmented defines the finite cylinder.
+        and (3) a random radius. The cylinder is extended along its axis to span the
+        full volume by intersecting an infinite line with the axis-aligned bounding
+        box. The resulting segment defines the finite cylinder.
 
         Returns:
             Boolean tensor of shape `shape` where True indicates voxels inside the
@@ -249,8 +249,8 @@ class Cylinders(ObjectGeometry):
 
             ``p(t) = point + t * direction``
 
-        Using a slab-based insection algorithm, this method computes the parameter
-        range `[t_min, t_max]` for which the line les inside the box defined by the
+        Using a slab-based intersection algorithm, this method computes the parameter
+        range `[t_min, t_max]` for which the line lies inside the box defined by the
         volume bounds.
 
         Args:
@@ -349,7 +349,7 @@ class Spheres(ObjectGeometry):
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        """Constructs sphere label map instance from configuratin object."""
+        """Constructs sphere label map instance from configuration object."""
         diameter_range = (
             config.geom.sphere_diameter.min,
             config.geom.sphere_diameter.max,
