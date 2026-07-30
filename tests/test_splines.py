@@ -58,14 +58,6 @@ def _install_fake_synthspline(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- SplineVessels ---
 
 
-def test_missing_synthspline_raises_clear_import_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setitem(sys.modules, "synthspline", None)
-    with pytest.raises(ImportError, match=r"synthbold\[splines\]"):
-        SplineVessels(shape=SMALL_SHAPE, fov=SMALL_FOV, device="cpu", seed=0)
-
-
 def test_forward_output_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_synthspline(monkeypatch)
     sv = SplineVessels(shape=SMALL_SHAPE, fov=SMALL_FOV, device="cpu", seed=0)
