@@ -36,23 +36,12 @@ dependencies = [
     "pyyaml>=6.0.3",
     "scikit-image>=0.26.0",
     "torch>=2.11.0",
-    "types-pyyaml>=6.0.12.20260408",
     "zarr>=3.1.6",
 ]
 
-[project.optional-dependencies]
-splines = [
-    "synthspline @ git+https://github.com/haenelt/synthspline.git@main",
-]
-
-[project.urls]
-Homepage = "https://github.com/haenelt/synthBOLD"
-Repository = "https://github.com/haenelt/synthBOLD"
-Documentation = "https://synthbold.readthedocs.io/en/latest/"
-Issues = "https://github.com/haenelt/synthBOLD/issues"
-
 [dependency-groups]
 dev = [
+    "build>=1.5.0",
     "ipykernel>=7.2.0",
     "mypy>=1.20.2",
     "pre-commit>=4.6.0",
@@ -60,6 +49,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-sugar>=1.1.1",
     "ruff>=0.15.12",
+    "twine>=7.0.0",
     "types-pyyaml>=6.0.12.20260408",
 ]
 docs = [
@@ -69,8 +59,11 @@ docs = [
     "sphinx>=9.1.0",
 ]
 
-[tool.hatch.metadata]
-allow-direct-references = true
+[project.urls]
+Homepage = "https://github.com/haenelt/synthBOLD"
+Repository = "https://github.com/haenelt/synthBOLD"
+Documentation = "https://synthbold.readthedocs.io/en/latest/"
+Issues = "https://github.com/haenelt/synthBOLD/issues"
 
 [tool.mypy]
 ignore_missing_imports = true  # ignore missing type hints in third-party libraries

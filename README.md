@@ -26,6 +26,12 @@ _synthbold_ can be installed from [pypi](https://pypi.org/) via
 pip install synthbold
 ```
 
+Optionally, `synthbold.splines` exposes a thin wrapper for spline-based vessel generation that relies on [synthspline](https://github.com/balbasty/synthspline). The dependency is not installed by default. If you need this feature, install it separately from GitHub:
+
+```
+pip install git+https://github.com/haenelt/synthspline.git@main
+```
+
 ## Usage
 To generate a batch of synthetic BOLD data with macrovascular contributions, the `synthbold` command can be called from the command line as follows:
 

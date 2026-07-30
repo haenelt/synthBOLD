@@ -5,7 +5,8 @@ the spline-based vessel geometry generator `synthspline`
 (https://github.com/balbasty/synthspline). The module is intentionally kept separate so
 that `import synthbold` does not require `synthspline` to be installed; the dependency
 is only imported lazily, at the point a `SplineVessels` instance is actually
-constructed. Install ``synthspline` with pip install synthbold[splines]``.
+constructed. Install `synthspline` with
+``pip install git+https://github.com/haenelt/synthspline.git@main``.
 """
 
 from typing import Any, Self
@@ -28,8 +29,9 @@ class SplineVessels(BaseGeometry):
     log-normal distributions defined by `synthspline` itself rather than sampled here.
 
     Requires the optional `synthspline` package; install with ``pip install
-    synthbold[splines]``. The dependency is only imported when this class is
-    instantiated, so importing `synthbold` never requires it.
+    git+https://github.com/haenelt/synthspline.git@main``. The dependency is only
+    imported when this class is instantiated, so importing `synthbold` never requires
+    it.
 
     Args:
         shape: Matrix size of the spline label map ``(X, Y, Z)``.
@@ -114,7 +116,8 @@ class SplineVessels(BaseGeometry):
         except ImportError as exc:
             raise ImportError(
                 "SplineVessels requires the optional `synthspline` package. Install "
-                "it with `pip install synthbold[splines]`."
+                "it with `pip install git+https://github.com/haenelt/synthspline.git"
+                "@main`."
             ) from exc
 
         voxel_size = sum(f / n for f, n in zip(self.fov, self.shape, strict=True)) / 3
