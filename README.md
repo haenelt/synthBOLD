@@ -15,7 +15,7 @@ In particular, it was developed to facilitate methods for identifying and mitiga
 
 Each BOLD fMRI sample is built from a biophysical forward model of the BOLD signal: randomly placed vascular geometries (vessels and other perturbing structures) are assigned magnetic susceptibility values that generate a surrounding field perturbation (ΔBz), and the complex MRI signal is computed under the static dephasing regime [1], i.e., the intra-voxel signal decay caused by static, susceptibility-induced field inhomogeneities around vessels, following the classic vessel-based BOLD simulation framework of [2].
 
-All generative parameters (vessel geometry, size, orientation, susceptibility, decay rates, echo time, magnetic field strength, etc.) are generated with weak priors rather than tuned to match any specific real dataset. This domain-randomization strategy (cf. [3, 4]) aims to generate a much broader data distribution than any finite set of real fMRI data acquisitions could provide, so that models trained on synthetic data alone generalize to real fMRI data at test time.
+All generative parameters (vessel geometry, size, orientation, susceptibility, decay rates, echo time, magnetic field strength, etc.) are generated with weak priors and high variance sampling rather than tuned to match any specific real dataset. This domain-randomization strategy (cf. [3, 4]) aims to generate a much broader data distribution than any finite set of real fMRI data acquisitions could provide, so that models trained on synthetic data alone generalize to real fMRI data at test time.
 
 ## Installation
 _synthbold_ can be installed from [pypi](https://pypi.org/) via
