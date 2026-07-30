@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Any, Self
 
@@ -293,6 +294,26 @@ def test_object_geometry_vf_range_nonzero() -> None:
     )
     out = obj.forward()
     assert (out > 0).any()
+
+
+def test_object_geometry_vf_range_unreachable_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # DummyObjectGeometry's mask always covers exactly the first half of X, and
+    # every subsequent call adds 0 new voxels under allow_overlap=True, so a target
+    # vf above 0.5 can never be reached: this forces the max_iter shortfall branch.
+    obj = DummyObjectGeometry(
+        shape=(4, 4, 4), fov=(1.0, 1.0, 1.0), vf_range=(0.9, 0.9), seed=0
+    )
+    with caplog.at_level(logging.WARNING, logger="synthbold.base"):
+        out = obj.forward()
+
+    assert (out > 0).float().mean().item() == pytest.approx(0.5)
+    assert len(caplog.records) == 1
+    message = caplog.records[0].getMessage()
+    assert "reached max_iter" in message
+    assert "0.5000" in message
+    assert "0.9000" in message
 
 
 def test_object_geometry_attrs_keys() -> None:

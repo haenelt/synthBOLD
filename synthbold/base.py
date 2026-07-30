@@ -1,5 +1,6 @@
 """Abstract base classes and mixins for the synthBOLD synthesis pipeline."""
 
+import logging
 from abc import ABC, abstractmethod
 from functools import cached_property
 from pathlib import Path
@@ -11,6 +12,7 @@ import torch
 from synthbold.config import Config
 from synthbold.decorator import log_call, to_device
 from synthbold.io import save_nifti, save_zarr, zarr_attributes
+from synthbold.sampling import sample_uniform
 
 __all__ = [
     "RandomGeneratorMixin",
@@ -19,6 +21,9 @@ __all__ = [
     "Model",
     "Transform",
 ]
+
+
+logger = logging.getLogger(__name__)
 
 
 class RandomGeneratorMixin:
@@ -255,6 +260,15 @@ class ObjectGeometry(BaseGeometry, ABC):
                 i += 1
                 volume, new_voxels = self._add_object(i, volume)
                 occupied += new_voxels
+            if occupied / total_voxels < vf:
+                logger.warning(
+                    "%s: reached max_iter=%d without hitting target volume fraction "
+                    "(%.4f<%.4f); returning under-filled volume.",
+                    type(self).__name__,
+                    max_iter,
+                    occupied / total_voxels,
+                    vf,
+                )
         else:
             raise ValueError(
                 "Either number of objects or volume fraction must be specified."
@@ -350,6 +364,46 @@ class ObjectGeometry(BaseGeometry, ABC):
         proj = start + t.unsqueeze(-1) * vec_v
         dist = torch.norm(grid - proj, dim=-1)
         return dist <= radius, slices_t
+
+    def _local_bounding_box(
+        self, center: torch.Tensor, radius: torch.Tensor | float
+    ) -> tuple[torch.Tensor, tuple[slice, slice, slice]] | None:
+        """Crop `voxel_grid` to an axis-aligned bounding box centered on `center`,
+        padded by `radius` (+1 voxel margin), instead of the full volume. Valid whenever
+        every point of the object lies within `radius` of `center` (e.g. a
+        circumradius), and substantially cheaper than evaluating a membership test over
+        the full volume when the object is small relative to it.
+
+        Args:
+            center: Box center of shape ``(3,)``, in voxel coordinates.
+            radius: Bounding radius in voxel units.
+
+        Returns:
+            A tuple of the cropped ``(..., 3)`` grid and the slices locating it
+            within the full volume. Returns `None` if the padded box does not
+            intersect the volume.
+        """
+        pad = (radius.item() if isinstance(radius, torch.Tensor) else radius) + 1.0
+        lo = center - pad
+        hi = center + pad
+
+        slices = []
+        for i in range(3):
+            lo_i = max(int(torch.floor(lo[i]).item()), 0)
+            hi_i = min(int(torch.ceil(hi[i]).item()) + 1, self.shape[i])
+            if lo_i >= hi_i:
+                return None
+            slices.append(slice(lo_i, hi_i))
+        slices_t = (slices[0], slices[1], slices[2])
+        return self.voxel_grid[slices_t], slices_t
+
+    def _sample_scalar(self, low: float, high: float) -> torch.Tensor:
+        """Sample a single scalar uniformly from ``[low, high)``.
+
+        Returns:
+            0-dim tensor on `self.device`.
+        """
+        return sample_uniform((), low, high, self.device, self.generator)
 
     def _random_point(self) -> torch.Tensor:
         """Sample a random point uniformly inside the volume bounds.

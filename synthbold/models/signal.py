@@ -248,8 +248,8 @@ class SignalModel(RandomGeneratorMixin):
             dbz: ΔBz maps in Tesla of shape ``(B, X, Y, Z)``.
             t2: Optional per-batch, per-label T2 values. Sampled uniformly from
                 ``t2_range`` if not given.
-            te: Optional per-batch echo times in ms. Sampled uniformly from
-                ``te_range`` if not given.
+            te: Optional per-batch echo times in ms. Sampled uniformly from ``te_range``
+                if not given.
             dirname: Directory for saving the outputs to disk. If given, each field
                 of `SignalOutput` is saved as its own file, named
                 ``<dirname>/<field>.<fmt>`` (e.g. ``magnitude.zarr``, ``phase.zarr``).
@@ -314,6 +314,10 @@ class SignalModel(RandomGeneratorMixin):
         """
         tissue = tissue.clone()
         vessel = vessel.clone()
+
+        # Vessel label maps are probably of type integer. Here, we convert the tensor to
+        # float to be able to generate volume fraction maps after downsampling.
+        vessel = vessel.float()
 
         B, X, Y, Z = tissue.shape
         t2_low, t2_high = self.t2_range

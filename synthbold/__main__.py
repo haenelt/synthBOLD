@@ -97,12 +97,7 @@ def standardize(s: SynthSample) -> SynthSample:
 
 
 def main() -> None:
-    """Parse CLI arguments, build the data generator, and run synthesis.
-
-    Raises:
-        ValueError: If `args.label` does not match a known label type (not reachable
-            in practice, since argparse's `choices` already restrict it).
-    """
+    """Parse CLI arguments, build the data generator, and run synthesis."""
     parser = get_parser()
     args = parser.parse_args()
     setup_logging(level=getattr(logging, args.log_level))

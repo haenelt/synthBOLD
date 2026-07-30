@@ -228,11 +228,7 @@ class Cylinders(ObjectGeometry):
         end = point + tmax * axis
 
         # Random radius
-        radius = (
-            torch.rand((), device=self.device, generator=self.generator)
-            * (self.radius_range[1] - self.radius_range[0])
-            + self.radius_range[0]
-        )
+        radius = self._sample_scalar(*self.radius_range)
 
         return self._segment_mask(start, end, radius)
 
@@ -365,14 +361,14 @@ class CylinderTrees(ObjectGeometry):
         min_radius_fraction: float = 0.15,
     ) -> None:
         super().__init__(
-            shape,
-            fov,
-            num_objects,
-            vf_range,
-            diameter_range,
-            allow_overlap,
-            device,
-            seed,
+            shape=shape,
+            fov=fov,
+            num_objects=num_objects,
+            vf_range=vf_range,
+            diameter_range=diameter_range,
+            allow_overlap=allow_overlap,
+            device=device,
+            seed=seed,
         )
         if not 0.0 <= branch_prob <= 1.0:
             raise ValueError(f"branch_prob must lie within [0, 1], got {branch_prob}.")
@@ -423,11 +419,7 @@ class CylinderTrees(ObjectGeometry):
         axis = torch.randn(3, device=self.device, generator=self.generator)
         axis = axis / torch.norm(axis)
         start = self._random_point()
-        root_radius = (
-            torch.rand((), device=self.device, generator=self.generator)
-            * (self.radius_range[1] - self.radius_range[0])
-            + self.radius_range[0]
-        )
+        root_radius = self._sample_scalar(*self.radius_range)
         min_radius = root_radius * self.min_radius_fraction
 
         mask = torch.zeros(self.shape, device=self.device, dtype=torch.bool)
@@ -436,14 +428,7 @@ class CylinderTrees(ObjectGeometry):
         while stack:
             seg_start, seg_axis, seg_radius, depth = stack.pop()
 
-            length = (
-                torch.rand((), device=self.device, generator=self.generator)
-                * (
-                    self.segment_length_voxel_range[1]
-                    - self.segment_length_voxel_range[0]
-                )
-                + self.segment_length_voxel_range[0]
-            )
+            length = self._sample_scalar(*self.segment_length_voxel_range)
             seg_end = seg_start + length * seg_axis
 
             result = self._local_segment_mask(seg_start, seg_end, seg_radius)
@@ -462,10 +447,7 @@ class CylinderTrees(ObjectGeometry):
             if bifurcate:
                 # Murray's law: r_parent^3 = r_child1^3 + r_child2^3, with a random
                 # asymmetric split between the two children.
-                split = (
-                    torch.rand((), device=self.device, generator=self.generator) * 0.3
-                    + 0.35
-                )
+                split = self._sample_scalar(0.35, 0.65)
                 for frac in (split, 1.0 - split):
                     child_radius = seg_radius * frac ** (1.0 / 3.0)
                     child_axis = self._perturb_axis(seg_axis)
@@ -487,14 +469,8 @@ class CylinderTrees(ObjectGeometry):
         Returns:
             New unit direction vector of shape ``(3,)``.
         """
-        theta = (
-            torch.rand((), device=self.device, generator=self.generator)
-            * (self.branch_angle_range[1] - self.branch_angle_range[0])
-            + self.branch_angle_range[0]
-        )
-        phi = (
-            torch.rand((), device=self.device, generator=self.generator) * 2 * torch.pi
-        )
+        theta = self._sample_scalar(*self.branch_angle_range)
+        phi = self._sample_scalar(0.0, 2 * torch.pi)
 
         # Build an orthonormal basis (e1, e2) perpendicular to `axis`, using whichever
         # coordinate axis is least aligned with `axis` as a stable reference to avoid a
@@ -556,27 +532,33 @@ class Spheres(ObjectGeometry):
     parameters.
     """
 
-    def _mask_object(self) -> torch.Tensor:
+    def _mask_object(self) -> torch.Tensor | None:
         """Generate a binary mask of a randomly placed sphere. The sphere center is
         drawn uniformly inside the volume bounds and the radius is sampled uniformly
-        from ``radius_range``.
+        from ``radius_range``. Only the axis-aligned bounding box around the sphere is
+        evaluated, rather than the full volume, since the sphere is typically small
+        relative to it.
 
         Returns:
             Boolean tensor of shape ``shape`` where ``True`` indicates voxels
-            inside the sphere.
+            inside the sphere. Returns `None` if the sphere's bounding box does not
+            intersect the volume.
         """
         # Random center inside volume
         center = self._random_point()
 
         # Random radius
-        radius = (
-            torch.rand((), device=self.device, generator=self.generator)
-            * (self.radius_range[1] - self.radius_range[0])
-            + self.radius_range[0]
-        )
+        radius = self._sample_scalar(*self.radius_range)
 
-        dist = torch.norm(self.voxel_grid - center, dim=-1)
-        return dist <= radius
+        box = self._local_bounding_box(center, radius)
+        if box is None:
+            return None
+        grid, slices = box
+
+        dist = torch.norm(grid - center, dim=-1)
+        mask = torch.zeros(self.shape, device=self.device, dtype=torch.bool)
+        mask[slices] = dist <= radius
+        return mask
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
@@ -632,27 +614,25 @@ class Tetrahedra(ObjectGeometry):
         ]
     ) / (3.0**0.5)
 
-    def _mask_object(self) -> torch.Tensor:
+    def _mask_object(self) -> torch.Tensor | None:
         """Generate a binary mask of a randomly placed and oriented regular tetrahedron.
 
         A random circumradius is sampled from ``radius_range``, a random rotation is
         drawn via QR decomposition, and the tetrahedron is placed at a random center
         inside the volume. Voxel membership is decided by checking all four half-space
-        constraints (one per face).
+        constraints (one per face), evaluated only within the axis-aligned bounding box
+        around the tetrahedron's circumradius rather than the full volume.
 
         Returns:
             Boolean tensor of shape ``shape`` where ``True`` marks voxels inside the
-            tetrahedron.
+            tetrahedron. Returns `None` if the bounding box does not intersect the
+            volume.
         """
         # Random center inside volume
         center = self._random_point()
 
         # Random circumradius
-        radius = (
-            torch.rand((), device=self.device, generator=self.generator)
-            * (self.radius_range[1] - self.radius_range[0])
-            + self.radius_range[0]
-        )
+        radius = self._sample_scalar(*self.radius_range)
 
         # Random rotation
         Q = self._random_rotation()
@@ -661,10 +641,14 @@ class Tetrahedra(ObjectGeometry):
         verts = self._CANONICAL_VERTICES.to(self.device)  # (4, 3), circumradius = 1
         verts = radius * (verts @ Q.T) + center  # (4, 3)
 
+        box = self._local_bounding_box(center, radius)
+        if box is None:
+            return None
+        grid, slices = box
+
         # Half-space test: a voxel is inside the tetrahedron if it lies on the inward
         # side of all four face planes.
-        pts = self.voxel_grid  # (X, Y, Z, 3)
-        inside = torch.ones(self.shape, device=self.device, dtype=torch.bool)
+        inside = torch.ones(grid.shape[:-1], device=self.device, dtype=torch.bool)
 
         faces = [
             (verts[1], verts[2], verts[3], verts[0]),
@@ -676,10 +660,12 @@ class Tetrahedra(ObjectGeometry):
             n = torch.linalg.cross(b - a, c - a)
             if torch.dot(n, opposite - a) < 0:
                 n = -n
-            sd = torch.tensordot(pts - a, n, dims=([3], [0]))
+            sd = torch.tensordot(grid - a, n, dims=([3], [0]))
             inside = inside & (sd >= 0)
 
-        return inside
+        mask = torch.zeros(self.shape, device=self.device, dtype=torch.bool)
+        mask[slices] = inside
+        return mask
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
@@ -729,27 +715,25 @@ class Cubes(ObjectGeometry):
         >>> cube_map(100, fname)
     """
 
-    def _mask_object(self) -> torch.Tensor:
+    def _mask_object(self) -> torch.Tensor | None:
         """Generate a binary mask of a randomly placed and oriented cube.
 
         A random circumradius is sampled from ``radius_range``, a random rotation is
         drawn via QR decomposition, and the cube is placed at a random center inside
         the volume. Voxel membership is decided by transforming coordinates into the
-        cube's local frame and checking the L∞ norm against the half-edge length.
+        cube's local frame and checking the L∞ norm against the half-edge length,
+        evaluated only within the axis-aligned bounding box around the cube's
+        circumradius rather than the full volume.
 
         Returns:
             Boolean tensor of shape ``shape`` where ``True`` marks voxels inside the
-            cube.
+            cube. Returns `None` if the bounding box does not intersect the volume.
         """
         # Random center inside volume
         center = self._random_point()
 
         # Random circumradius
-        radius = (
-            torch.rand((), device=self.device, generator=self.generator)
-            * (self.radius_range[1] - self.radius_range[0])
-            + self.radius_range[0]
-        )
+        radius = self._sample_scalar(*self.radius_range)
 
         # Random rotation
         Q = self._random_rotation()
@@ -757,10 +741,17 @@ class Cubes(ObjectGeometry):
         # Circumradius of a unit cube (half-edge = 1) is √3, so half-edge = r/√3
         half_edge = radius / (3.0**0.5)
 
+        box = self._local_bounding_box(center, radius)
+        if box is None:
+            return None
+        grid, slices = box
+
         # Rotate voxel coords into cube frame: p' = Q^T @ (p - center)
         # In row-vector convention: (p - center) @ Q achieves the same result.
-        pts_local = (self.voxel_grid - center) @ Q  # (X, Y, Z, 3)
-        return pts_local.abs().amax(dim=-1) <= half_edge
+        pts_local = (grid - center) @ Q  # (x, y, z, 3)
+        mask = torch.zeros(self.shape, device=self.device, dtype=torch.bool)
+        mask[slices] = pts_local.abs().amax(dim=-1) <= half_edge
+        return mask
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
@@ -828,14 +819,14 @@ class Toroids(ObjectGeometry):
         seed: int | None = None,
     ) -> None:
         super().__init__(
-            shape,
-            fov,
-            num_objects,
-            vf_range,
-            diameter_range,
-            allow_overlap,
-            device,
-            seed,
+            shape=shape,
+            fov=fov,
+            num_objects=num_objects,
+            vf_range=vf_range,
+            diameter_range=diameter_range,
+            allow_overlap=allow_overlap,
+            device=device,
+            seed=seed,
         )
         if not all(0 < v < 1 for v in tube_ratio_range):
             raise ValueError(
@@ -851,47 +842,50 @@ class Toroids(ObjectGeometry):
             "tube_ratio_range": self.tube_ratio_range,
         }
 
-    def _mask_object(self) -> torch.Tensor:
+    def _mask_object(self) -> torch.Tensor | None:
         """Generate a binary mask of a randomly placed and oriented torus.
 
         A random major radius R is sampled from ``radius_range``, a random tube radius
         r is derived by multiplying R by a value from ``tube_ratio_range``, and a random
         rotation is drawn via QR decomposition. The torus symmetry axis is the local
         z-axis. Voxel membership uses the standard torus equation
-        ``(sqrt(x'^2 + y'^2) - R)^2 + z'^2 <= r^2`` in local coordinates.
+        ``(sqrt(x'^2 + y'^2) - R)^2 + z'^2 <= r^2`` in local coordinates, evaluated only
+        within the axis-aligned bounding box around the torus (radius ``R + r``) rather
+        than the full volume.
 
         Returns:
             Boolean tensor of shape ``shape`` where ``True`` marks voxels inside the
-            torus.
+            torus. Returns `None` if the bounding box does not intersect the volume.
         """
         # Random center inside volume
         center = self._random_point()
 
         # Random major radius R (distance from torus center to tube center)
-        major_radius = (
-            torch.rand((), device=self.device, generator=self.generator)
-            * (self.radius_range[1] - self.radius_range[0])
-            + self.radius_range[0]
-        )
+        major_radius = self._sample_scalar(*self.radius_range)
 
         # Random tube radius r = tube_ratio * R
-        tube_ratio = (
-            torch.rand((), device=self.device, generator=self.generator)
-            * (self.tube_ratio_range[1] - self.tube_ratio_range[0])
-            + self.tube_ratio_range[0]
-        )
+        tube_ratio = self._sample_scalar(*self.tube_ratio_range)
         tube_radius = tube_ratio * major_radius
 
         # Random rotation
         Q = self._random_rotation()
 
+        # No point on the torus is farther than R + r from its center.
+        box = self._local_bounding_box(center, major_radius + tube_radius)
+        if box is None:
+            return None
+        grid, slices = box
+
         # Transform voxel coords into torus local frame; symmetry axis is local z
-        pts_local = (self.voxel_grid - center) @ Q  # (X, Y, Z, 3)
+        pts_local = (grid - center) @ Q  # (x, y, z, 3)
 
         # Torus equation: (sqrt(x'^2 + y'^2) - R)^2 + z'^2 <= r^2
         xy_dist = torch.sqrt(pts_local[..., 0] ** 2 + pts_local[..., 1] ** 2)
         dist_sq = (xy_dist - major_radius) ** 2 + pts_local[..., 2] ** 2
-        return dist_sq <= tube_radius**2
+
+        mask = torch.zeros(self.shape, device=self.device, dtype=torch.bool)
+        mask[slices] = dist_sq <= tube_radius**2
+        return mask
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
