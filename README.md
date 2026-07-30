@@ -5,6 +5,8 @@
 [![Test and formatting](https://github.com/haenelt/synthBOLD/actions/workflows/tests.yml/badge.svg)](https://github.com/haenelt/synthBOLD/actions/workflows/tests.yml)
 [![Docs](https://github.com/haenelt/synthBOLD/actions/workflows/docs.yml/badge.svg)](https://github.com/haenelt/synthBOLD/actions/workflows/docs.yml)
 [![codecov](https://codecov.io/gh/haenelt/synthBOLD/graph/badge.svg?token=Z3YGVFyUzv)](https://codecov.io/gh/haenelt/synthBOLD)
+[![DOI](https://zenodo.org/badge/1221308890.svg)](https://doi.org/10.5281/zenodo.21708862)
+
 
 ![synth batch example](https://raw.githubusercontent.com/haenelt/synthBOLD/main/docs/source/_static/synth_batch.svg)
 
