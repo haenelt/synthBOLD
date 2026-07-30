@@ -48,7 +48,7 @@ splines = [
 [project.urls]
 Homepage = "https://github.com/haenelt/synthBOLD"
 Repository = "https://github.com/haenelt/synthBOLD"
-Documentation = "https://github.com/haenelt/synthBOLD"
+Documentation = "https://synthbold.readthedocs.io/en/latest/"
 Issues = "https://github.com/haenelt/synthBOLD/issues"
 
 [dependency-groups]
