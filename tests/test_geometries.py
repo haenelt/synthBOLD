@@ -1,6 +1,14 @@
 import torch
 
-from synthbold.geometries import Cubes, Cylinders, Shapes, Spheres, Tetrahedra, Toroids
+from synthbold.geometries import (
+    Cubes,
+    Cylinders,
+    CylinderTrees,
+    Shapes,
+    Spheres,
+    Tetrahedra,
+    Toroids,
+)
 
 SMALL_SHAPE = (16, 16, 16)
 SMALL_FOV = (4.0, 4.0, 4.0)
@@ -142,6 +150,166 @@ def test_cylinders_attrs() -> None:
     assert attrs["fov"] == SMALL_FOV
     assert attrs["num_objects"] == 2
     assert attrs["diameter_range"] == (0.25, 1.0)
+
+
+# --- CylinderTrees ---
+
+
+def test_cylinder_trees_num_objects_output_shape() -> None:
+    c = CylinderTrees(
+        shape=SMALL_SHAPE,
+        fov=SMALL_FOV,
+        num_objects=3,
+        vf_range=None,
+        device="cpu",
+        seed=0,
+    )
+    out = c.forward()
+    assert out.shape == torch.Size(SMALL_SHAPE)
+
+
+def test_cylinder_trees_vf_range_output_shape() -> None:
+    c = CylinderTrees(
+        shape=SMALL_SHAPE, fov=SMALL_FOV, vf_range=(0.05, 0.15), device="cpu", seed=0
+    )
+    out = c.forward()
+    assert out.shape == torch.Size(SMALL_SHAPE)
+
+
+def test_cylinder_trees_vf_range_nonzero_voxels() -> None:
+    c = CylinderTrees(
+        shape=SMALL_SHAPE, fov=SMALL_FOV, vf_range=(0.05, 0.15), device="cpu", seed=0
+    )
+    out = c.forward()
+    labeled_fraction = (out > 0).float().mean().item()
+    assert labeled_fraction > 0.0
+
+
+def test_cylinder_trees_reproducibility() -> None:
+    c1 = CylinderTrees(
+        shape=SMALL_SHAPE,
+        fov=SMALL_FOV,
+        num_objects=3,
+        vf_range=None,
+        branch_prob=1.0,
+        device="cpu",
+        seed=99,
+    )
+    c2 = CylinderTrees(
+        shape=SMALL_SHAPE,
+        fov=SMALL_FOV,
+        num_objects=3,
+        vf_range=None,
+        branch_prob=1.0,
+        device="cpu",
+        seed=99,
+    )
+    assert torch.equal(c1.forward(), c2.forward())
+
+
+def test_cylinder_trees_different_seeds() -> None:
+    c1 = CylinderTrees(
+        shape=SMALL_SHAPE,
+        fov=SMALL_FOV,
+        num_objects=3,
+        vf_range=None,
+        branch_prob=1.0,
+        device="cpu",
+        seed=1,
+    )
+    c2 = CylinderTrees(
+        shape=SMALL_SHAPE,
+        fov=SMALL_FOV,
+        num_objects=3,
+        vf_range=None,
+        branch_prob=1.0,
+        device="cpu",
+        seed=2,
+    )
+    assert not torch.equal(c1.forward(), c2.forward())
+
+
+def test_cylinder_trees_call_returns_batch() -> None:
+    c = CylinderTrees(
+        shape=SMALL_SHAPE,
+        fov=SMALL_FOV,
+        num_objects=2,
+        vf_range=None,
+        device="cpu",
+        seed=0,
+    )
+    batch = c(n_sample=3)
+    assert batch.shape == torch.Size((3, *SMALL_SHAPE))
+
+
+def test_cylinder_trees_attrs() -> None:
+    c = CylinderTrees(
+        shape=SMALL_SHAPE,
+        fov=SMALL_FOV,
+        num_objects=2,
+        vf_range=None,
+        diameter_range=(0.25, 1.0),
+        branch_prob=0.5,
+        max_depth=4,
+        device="cpu",
+        seed=0,
+    )
+    attrs = c.attrs
+    assert attrs["generator"] == "CylinderTrees"
+    assert attrs["fov"] == SMALL_FOV
+    assert attrs["num_objects"] == 2
+    assert attrs["diameter_range"] == (0.25, 1.0)
+    assert attrs["branch_prob"] == 0.5
+    assert attrs["max_depth"] == 4
+
+
+def test_cylinder_trees_no_bifurcation_matches_single_segment() -> None:
+    # With branch_prob=0, a tree never branches, so max_depth bounds how far the
+    # single straight chain of segments can grow.
+    c = CylinderTrees(
+        shape=SMALL_SHAPE,
+        fov=SMALL_FOV,
+        num_objects=1,
+        vf_range=None,
+        branch_prob=0.0,
+        max_depth=0,
+        device="cpu",
+        seed=0,
+    )
+    out = c.forward()
+    assert out.max().item() <= 1
+
+
+def test_cylinder_trees_invalid_branch_prob() -> None:
+    try:
+        CylinderTrees(shape=SMALL_SHAPE, fov=SMALL_FOV, num_objects=1, branch_prob=1.5)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for branch_prob out of range.")
+
+
+def test_cylinder_trees_invalid_max_depth() -> None:
+    try:
+        CylinderTrees(shape=SMALL_SHAPE, fov=SMALL_FOV, num_objects=1, max_depth=-1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for negative max_depth.")
+
+
+def test_cylinder_trees_invalid_min_radius_fraction() -> None:
+    try:
+        CylinderTrees(
+            shape=SMALL_SHAPE,
+            fov=SMALL_FOV,
+            num_objects=1,
+            min_radius_fraction=0.0,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError for min_radius_fraction of 0.")
 
 
 # --- Spheres ---

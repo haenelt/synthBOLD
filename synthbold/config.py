@@ -57,6 +57,15 @@ class GeometryParams(BaseModel):
         cylinder_vf: Volume fraction of cylinders.
         cylinder_diameter: Range of cylinder diameters in mm.
         cylinder_allow_overlap: Allow cylinders to overlap.
+        tree_num: Number of generated cylinder trees.
+        tree_vf: Volume fraction of cylinder trees.
+        tree_diameter: Range of cylinder tree root diameters in mm.
+        tree_allow_overlap: Allow cylinder trees to overlap.
+        tree_segment_length: Range of individual segment lengths in mm.
+        tree_branch_prob: Probability that a segment bifurcates.
+        tree_branch_angle: Range of parent-child branch angles in radians.
+        tree_max_depth: Maximum number of branching generations below the root.
+        tree_min_radius_fraction: Radius fraction below which a branch stops growing.
         sphere_num: Number of generated spheres.
         sphere_vf: Volume fraction of spheres.
         sphere_diameter: Range of sphere diameters in mm.
@@ -87,6 +96,17 @@ class GeometryParams(BaseModel):
     cylinder_vf: Range = Range(min=0.005, max=0.01)
     cylinder_diameter: Range = Range(min=0.25, max=2.0)
     cylinder_allow_overlap: bool = True
+
+    # object geometry: cylinder trees
+    tree_num: int | None = None
+    tree_vf: Range = Range(min=0.005, max=0.01)
+    tree_diameter: Range = Range(min=0.25, max=2.0)
+    tree_allow_overlap: bool = True
+    tree_segment_length: Range = Range(min=2.0, max=6.0)
+    tree_branch_prob: float = 0.35
+    tree_branch_angle: Range = Range(min=0.2618, max=0.7854)
+    tree_max_depth: int = 6
+    tree_min_radius_fraction: float = 0.15
 
     # object geometry: spheres
     sphere_num: int | None = None

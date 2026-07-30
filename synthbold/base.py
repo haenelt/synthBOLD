@@ -211,13 +211,12 @@ class ObjectGeometry(BaseGeometry, ABC):
         if (num_objects is None) == (vf_range is None):
             raise ValueError("Specify exactly one of num_objects or vf_range.")
 
-        # Convert diameter_range in mm to radius_range in voxel dimension.
-        # We use the mean voxel size across dimensions for conversion.
+        # Convert mm units to voxel units using the mean voxel size across dimensions.
         voxel_size = tuple(f / n for f, n in zip(fov, shape, strict=True))
-        voxel_size_mean = sum(voxel_size) / 3
+        self.voxel_size_mean = sum(voxel_size) / 3
         self.radius_range = (
-            diameter_range[0] / 2 / voxel_size_mean,
-            diameter_range[1] / 2 / voxel_size_mean,
+            self._mm_to_voxels(diameter_range[0]) / 2,
+            self._mm_to_voxels(diameter_range[1]) / 2,
         )
 
     @property
@@ -262,6 +261,95 @@ class ObjectGeometry(BaseGeometry, ABC):
             )
 
         return volume
+
+    def _mm_to_voxels(self, mm: float) -> float:
+        """Converts a length in mm to voxel units using the mean voxel size."""
+        return mm / self.voxel_size_mean
+
+    def _segment_mask(
+        self, start: torch.Tensor, end: torch.Tensor, radius: torch.Tensor
+    ) -> torch.Tensor | None:
+        """Generate a binary mask of a finite cylindrical segment between two points.
+
+        Args:
+            start: Segment start point of shape ``(3,)``, in voxel coordinates.
+            end: Segment end point of shape ``(3,)``, in voxel coordinates.
+            radius: Segment radius in voxel units.
+
+        Returns:
+            Boolean tensor of shape `shape` where True indicates voxels inside the
+            segment. Returns `None` if `start` and `end` coincide.
+        """
+        # Vector along segment axis
+        vec_v = end - start
+        vec_v_norm2 = torch.dot(vec_v, vec_v)
+        if vec_v_norm2 < 1e-12:
+            return None
+
+        # Vector from start point to every voxel
+        vec_p = self.voxel_grid - start
+
+        # Project each voxel onto the segment axis, clamped to the segment extent
+        t = torch.tensordot(vec_p, vec_v, dims=([3], [0])) / vec_v_norm2
+        t = torch.clamp(t, 0.0, 1.0)
+
+        # Compute closest point on the segment for each voxel
+        proj = start + t.unsqueeze(-1) * vec_v
+
+        # Euclidean distance from voxel to segment
+        dist = torch.norm(self.voxel_grid - proj, dim=-1)
+        return dist <= radius
+
+    def _local_segment_mask(
+        self, start: torch.Tensor, end: torch.Tensor, radius: torch.Tensor
+    ) -> tuple[torch.Tensor, tuple[slice, slice, slice]] | None:
+        """Generate a binary mask of a finite cylindrical segment, restricted to its
+        axis-aligned bounding box (padded by `radius`) instead of the full volume. This
+        is substantially cheaper than `_segment_mask` when segments are small relative
+        to the volume, e.g. when growing a tree from many short segments.
+
+        Args:
+            start: Segment start point of shape ``(3,)``, in voxel coordinates.
+            end: Segment end point of shape ``(3,)``, in voxel coordinates.
+            radius: Segment radius in voxel units.
+
+        Returns:
+            A tuple of the boolean submask and the slices locating it within the full
+            volume. Returns `None` if `start` and `end` coincide, or if the padded
+            bounding box does not intersect the volume.
+        """
+        # Vector along segment axis
+        vec_v = end - start
+        vec_v_norm2 = torch.dot(vec_v, vec_v)
+        if vec_v_norm2 < 1e-12:
+            return None
+
+        # Axis-aligned bounding box around the segment, padded by radius (+1 voxel
+        # margin so voxels just outside the segment endpoints are still included)
+        pad = radius.item() + 1.0
+        lo = torch.minimum(start, end) - pad
+        hi = torch.maximum(start, end) + pad
+
+        # Clip the padded box to the volume bounds, per axis; bail out if it lies
+        # entirely outside the volume
+        slices = []
+        for i in range(3):
+            lo_i = max(int(torch.floor(lo[i]).item()), 0)
+            hi_i = min(int(torch.ceil(hi[i]).item()) + 1, self.shape[i])
+            if lo_i >= hi_i:
+                return None
+            slices.append(slice(lo_i, hi_i))
+        slices_t = (slices[0], slices[1], slices[2])
+
+        # Same projection/distance test as `_segment_mask`, but evaluated only on the
+        # cropped grid instead of the full volume
+        grid = self.voxel_grid[slices_t]
+        vec_p = grid - start
+        t = torch.tensordot(vec_p, vec_v, dims=([3], [0])) / vec_v_norm2
+        t = torch.clamp(t, 0.0, 1.0)
+        proj = start + t.unsqueeze(-1) * vec_v
+        dist = torch.norm(grid - proj, dim=-1)
+        return dist <= radius, slices_t
 
     def _random_point(self) -> torch.Tensor:
         """Sample a random point uniformly inside the volume bounds.

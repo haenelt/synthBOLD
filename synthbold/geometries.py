@@ -10,7 +10,15 @@ from synthbold.base import BaseGeometry, ObjectGeometry
 from synthbold.config import Config
 from synthbold.transforms.functional import apply_deformation
 
-__all__ = ["Shapes", "Cylinders", "Spheres", "Tetrahedra", "Cubes", "Toroids"]
+__all__ = [
+    "Shapes",
+    "Cylinders",
+    "CylinderTrees",
+    "Spheres",
+    "Tetrahedra",
+    "Cubes",
+    "Toroids",
+]
 
 
 class Shapes(BaseGeometry):
@@ -226,22 +234,7 @@ class Cylinders(ObjectGeometry):
             + self.radius_range[0]
         )
 
-        # Distance computation
-        # Vector along cylinder axis
-        vec_v = end - start
-        vec_v_norm2 = torch.dot(vec_v, vec_v)
-        if vec_v_norm2 < 1e-12:
-            return None
-        # Vector from start point to every voxel
-        vec_p = self.voxel_grid - start
-        # Project each voxel onto the cylinder axis
-        t = torch.tensordot(vec_p, vec_v, dims=([3], [0])) / vec_v_norm2
-        t = torch.clamp(t, 0.0, 1.0)
-        # Compute closest point on axis for each voxel
-        proj = start + t.unsqueeze(-1) * vec_v
-        # Euclidean distance from voxel to axis
-        dist = torch.norm(self.voxel_grid - proj, dim=-1)
-        return dist <= radius
+        return self._segment_mask(start, end, radius)
 
     def _intersect_line_with_box(
         self, point: torch.Tensor, direction: torch.Tensor, eps: float = 1e-8
@@ -307,6 +300,251 @@ class Cylinders(ObjectGeometry):
             allow_overlap=config.geom.cylinder_allow_overlap,
             seed=config.seed,
             device=config.device,
+        )
+
+
+class CylinderTrees(ObjectGeometry):
+    """Random bifurcating cylinder tree mask generator.
+
+    Generates masks of randomly branching cylinder trees, each built from straight
+    cylindrical segments connected end-to-end. Starting from a root segment with a
+    random position, direction, and radius (drawn the same way as :class:`Cylinders`),
+    each segment is extended by a random length and, with probability `branch_prob`,
+    splits into two child segments instead of terminating. Child directions diverge
+    from the parent by an angle drawn from `branch_angle_range` around a random
+    azimuth, and child radii are derived from the parent radius via Murray's law
+    (``r_parent^3 = r_child1^3 + r_child2^3``) with a random asymmetric split, so
+    calibre tapers realistically towards the leaves. A branch stops growing once its
+    radius falls below `min_radius_fraction` of the root radius or `max_depth`
+    generations have been reached. All segments belonging to one tree are written as a
+    single object label.
+
+    Follows the same interface as :class:`Cylinders` for volume-fraction/num_objects
+    control and root diameter sampling; see that class for a full description of the
+    shared parameters.
+
+    Args:
+        segment_length_range: Range of individual segment lengths in mm.
+        branch_prob: Probability that a segment bifurcates into two children instead
+            of terminating (subject to `max_depth`).
+        branch_angle_range: Range of angles in radians between a parent segment and
+            each of its two children at a bifurcation.
+        max_depth: Maximum number of branching generations grown below the root.
+        min_radius_fraction: Fraction of the root radius below which a branch stops
+            growing.
+
+    Raises:
+        ValueError: If `branch_prob` is not in ``[0, 1]``, if `max_depth` is negative,
+            or if `min_radius_fraction` is not in ``(0, 1]``.
+
+    Examples:
+        Create 100 random cylinder tree label maps and save to disk:
+
+        >>> shape = (128, 128, 128)
+        >>> fov = (32.0, 32.0, 32.0)
+        >>> num_trees = 5
+        >>> fname = "<fname-zarr>"
+        >>> tree_map = CylinderTrees(shape, fov, num_trees)
+        >>> tree_map(100, fname)
+    """
+
+    def __init__(
+        self,
+        shape: tuple[int, int, int] = (128, 128, 128),
+        fov: tuple[float, float, float] = (1.0, 1.0, 1.0),
+        num_objects: int | None = None,
+        vf_range: tuple[float, float] | None = (0.05, 0.1),
+        diameter_range: tuple[float, float] = (0.05, 2.0),
+        allow_overlap: bool = True,
+        device: str = "cpu",
+        seed: int | None = None,
+        segment_length_range: tuple[float, float] = (2.0, 6.0),
+        branch_prob: float = 0.35,
+        branch_angle_range: tuple[float, float] = (0.2618, 0.7854),
+        max_depth: int = 6,
+        min_radius_fraction: float = 0.15,
+    ) -> None:
+        super().__init__(
+            shape,
+            fov,
+            num_objects,
+            vf_range,
+            diameter_range,
+            allow_overlap,
+            device,
+            seed,
+        )
+        if not 0.0 <= branch_prob <= 1.0:
+            raise ValueError(f"branch_prob must lie within [0, 1], got {branch_prob}.")
+        if max_depth < 0:
+            raise ValueError(f"max_depth must be >= 0, got {max_depth}.")
+        if not 0.0 < min_radius_fraction <= 1.0:
+            raise ValueError(
+                f"min_radius_fraction must lie within (0, 1], got "
+                f"{min_radius_fraction}."
+            )
+
+        self.segment_length_range = segment_length_range
+        self.branch_prob = branch_prob
+        self.branch_angle_range = branch_angle_range
+        self.max_depth = max_depth
+        self.min_radius_fraction = min_radius_fraction
+
+        self.segment_length_voxel_range = (
+            self._mm_to_voxels(segment_length_range[0]),
+            self._mm_to_voxels(segment_length_range[1]),
+        )
+
+    @property
+    def attrs(self) -> dict[str, Any]:
+        """Metadata for ZARR/NIfTI storage."""
+        return {
+            **super().attrs,
+            "segment_length_range": self.segment_length_range,
+            "branch_prob": self.branch_prob,
+            "branch_angle_range": self.branch_angle_range,
+            "max_depth": self.max_depth,
+            "min_radius_fraction": self.min_radius_fraction,
+        }
+
+    def _mask_object(self) -> torch.Tensor | None:
+        """Generate a binary mask of a randomly grown, bifurcating cylinder tree.
+
+        The tree is grown iteratively (depth-first, via an explicit stack) from a
+        random root position, direction, and radius. At each step a segment is
+        extended by a random length; it then either bifurcates into two
+        Murray's-law-scaled children with diverging directions, or terminates.
+
+        Returns:
+            Boolean tensor of shape `shape` where True indicates voxels inside the
+            tree. Returns `None` if no valid segment was ever added.
+        """
+        # Random root direction, position, and radius
+        axis = torch.randn(3, device=self.device, generator=self.generator)
+        axis = axis / torch.norm(axis)
+        start = self._random_point()
+        root_radius = (
+            torch.rand((), device=self.device, generator=self.generator)
+            * (self.radius_range[1] - self.radius_range[0])
+            + self.radius_range[0]
+        )
+        min_radius = root_radius * self.min_radius_fraction
+
+        mask = torch.zeros(self.shape, device=self.device, dtype=torch.bool)
+        found_segment = False
+        stack = [(start, axis, root_radius, 0)]
+        while stack:
+            seg_start, seg_axis, seg_radius, depth = stack.pop()
+
+            length = (
+                torch.rand((), device=self.device, generator=self.generator)
+                * (
+                    self.segment_length_voxel_range[1]
+                    - self.segment_length_voxel_range[0]
+                )
+                + self.segment_length_voxel_range[0]
+            )
+            seg_end = seg_start + length * seg_axis
+
+            result = self._local_segment_mask(seg_start, seg_end, seg_radius)
+            if result is not None:
+                seg_mask, slices = result
+                mask[slices] |= seg_mask
+                found_segment = True
+
+            if depth >= self.max_depth or seg_radius < min_radius:
+                continue
+
+            bifurcate = (
+                torch.rand((), device=self.device, generator=self.generator)
+                < self.branch_prob
+            )
+            if bifurcate:
+                # Murray's law: r_parent^3 = r_child1^3 + r_child2^3, with a random
+                # asymmetric split between the two children.
+                split = (
+                    torch.rand((), device=self.device, generator=self.generator) * 0.3
+                    + 0.35
+                )
+                for frac in (split, 1.0 - split):
+                    child_radius = seg_radius * frac ** (1.0 / 3.0)
+                    child_axis = self._perturb_axis(seg_axis)
+                    stack.append((seg_end, child_axis, child_radius, depth + 1))
+            else:
+                stack.append((seg_end, seg_axis, seg_radius, depth + 1))
+
+        if not found_segment:
+            return None
+        return mask
+
+    def _perturb_axis(self, axis: torch.Tensor) -> torch.Tensor:
+        """Rotate a unit axis by a random angle from `branch_angle_range` around a
+        random azimuth, producing a new unit axis for a child branch.
+
+        Args:
+            axis: Unit direction vector of shape ``(3,)``.
+
+        Returns:
+            New unit direction vector of shape ``(3,)``.
+        """
+        theta = (
+            torch.rand((), device=self.device, generator=self.generator)
+            * (self.branch_angle_range[1] - self.branch_angle_range[0])
+            + self.branch_angle_range[0]
+        )
+        phi = (
+            torch.rand((), device=self.device, generator=self.generator) * 2 * torch.pi
+        )
+
+        # Build an orthonormal basis (e1, e2) perpendicular to `axis`, using whichever
+        # coordinate axis is least aligned with `axis` as a stable reference to avoid a
+        # near-zero cross product.
+        reference = torch.tensor([0.0, 0.0, 1.0], device=self.device)
+        if torch.abs(axis[2]) > 0.9:
+            reference = torch.tensor([1.0, 0.0, 0.0], device=self.device)
+        e1 = torch.linalg.cross(axis, reference)
+        e1 = e1 / torch.norm(e1)
+        e2 = torch.linalg.cross(axis, e1)
+
+        new_axis = torch.cos(theta) * axis + torch.sin(theta) * (
+            torch.cos(phi) * e1 + torch.sin(phi) * e2
+        )
+        return new_axis / torch.norm(new_axis)
+
+    @classmethod
+    def from_config(cls, config: Config) -> Self:
+        """Constructs cylinder tree label map instance from configuration object."""
+        diameter_range = (
+            config.geom.tree_diameter.min,
+            config.geom.tree_diameter.max,
+        )
+        vf_range = (
+            None
+            if config.geom.tree_num is not None
+            else (config.geom.tree_vf.min, config.geom.tree_vf.max)
+        )
+        segment_length_range = (
+            config.geom.tree_segment_length.min,
+            config.geom.tree_segment_length.max,
+        )
+        branch_angle_range = (
+            config.geom.tree_branch_angle.min,
+            config.geom.tree_branch_angle.max,
+        )
+        return cls(
+            shape=config.geom.input_shape,
+            fov=config.geom.fov,
+            num_objects=config.geom.tree_num,
+            vf_range=vf_range,
+            diameter_range=diameter_range,
+            allow_overlap=config.geom.tree_allow_overlap,
+            seed=config.seed,
+            device=config.device,
+            segment_length_range=segment_length_range,
+            branch_prob=config.geom.tree_branch_prob,
+            branch_angle_range=branch_angle_range,
+            max_depth=config.geom.tree_max_depth,
+            min_radius_fraction=config.geom.tree_min_radius_fraction,
         )
 
 
