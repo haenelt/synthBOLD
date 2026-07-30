@@ -6,7 +6,7 @@
 [![Docs](https://github.com/haenelt/synthBOLD/actions/workflows/docs.yml/badge.svg)](https://github.com/haenelt/synthBOLD/actions/workflows/docs.yml)
 [![codecov](https://codecov.io/gh/haenelt/synthBOLD/graph/badge.svg?token=Z3YGVFyUzv)](https://codecov.io/gh/haenelt/synthBOLD)
 
-![synth batch example](https://github.com/haenelt/synthBOLD/main/docs/source/_static/synth_batch.svg)
+![synth batch example](https://github.com/haenelt/synthBOLD/blob/develop/docs/source/_static/synth_batch.svg)
 
 
 _synthbold_ is a Python package for synthesizing BOLD fMRI data with controllable macrovascular contributions and corresponding ground-truth labels. The generated datasets can be used to develop, validate, and benchmark fMRI analysis methods without requiring labeled in vivo data.
