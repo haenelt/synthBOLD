@@ -78,10 +78,9 @@ def get_parser() -> argparse.ArgumentParser:
         help="Random seed for reproducibility (default: None).",
     )
     add(
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Logging verbosity (default: INFO). Use WARNING or ERROR in production.",
+        "--verbose",
+        action="store_true",
+        help="Logging verbosity (default: False).",
     )
     return parser
 
@@ -100,7 +99,7 @@ def main() -> None:
     """Parse CLI arguments, build the data generator, and run synthesis."""
     parser = get_parser()
     args = parser.parse_args()
-    setup_logging(level=getattr(logging, args.log_level))
+    setup_logging(level=logging.WARNING if not args.verbose else logging.DEBUG)
     logger = logging.getLogger(__name__)
 
     # Config is frozen; seed override requires a copy.
