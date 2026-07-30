@@ -23,7 +23,10 @@ extensions: list[str] = [
     "sphinx.ext.autodoc",  # if you want to document Python API
     "sphinx.ext.napoleon",  # support Google / NumPy style docstrings
     "sphinxcontrib.autodoc_pydantic",  # to avoid clashes with pydantic
+    "myst_parser",  # parse Markdown (e.g. to include README.md)
 ]
+
+myst_enable_extensions = ["dollarmath"]  # render $...$ math in Markdown
 
 templates_path: list[str] = ["_templates"]
 exclude_patterns: list[str] = []
@@ -35,6 +38,8 @@ html_theme = "furo"
 # Furo theme options for clean, literature-style look
 html_theme_options = {
     "sidebar_hide_name": True,  # hide project name in sidebar
+    "light_logo": "logo.svg",
+    "dark_logo": "logo.svg",
     "light_css_variables": {
         "color-content-background": "#ffffff",
         "color-sidebar-background": "#f8f8f8",
@@ -55,4 +60,7 @@ autodoc_pydantic_field_list_validators = False
 autodoc_pydantic_field_show_alias = False
 
 html_static_path = ["_static"]
-html_css_files = ["academic.css"]  # custom styles
+html_css_files = [
+    "https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700%7CRoboto+Mono&display=swap",
+    "academic.css",  # custom styles
+]

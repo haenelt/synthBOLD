@@ -102,13 +102,6 @@ def test_biasfield_call_4d_shape() -> None:
     assert out.shape == x.shape
 
 
-def test_biasfield_call_3d_shape() -> None:
-    bf = BiasField(lowres_shape=LOWRES_SHAPE, device="cpu", seed=0)
-    x = torch.ones(*SMALL_SHAPE)
-    out = bf(x)
-    assert out.shape == x.shape
-
-
 def test_biasfield_call_wrong_dim_raises() -> None:
     bf = BiasField(lowres_shape=LOWRES_SHAPE, device="cpu", seed=0)
     x = torch.ones(2, 2)

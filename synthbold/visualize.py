@@ -81,6 +81,9 @@ def render_3d(
         alpha: Opacity of the surface mesh.
         elev: Elevation angle of the 3D view in degrees.
         azim: Azimuth angle of the 3D view in degrees.
+
+    Raises:
+        ValueError: If `mask` is not a 3D tensor.
     """
     if mask.ndim != 3:
         raise ValueError(f"Expected 3D tensor, got shape {tuple(mask.shape)}.")

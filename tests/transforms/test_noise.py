@@ -102,13 +102,6 @@ def test_gaussiannoise_call_4d_shape() -> None:
     assert out.shape == x.shape
 
 
-def test_gaussiannoise_call_3d_shape() -> None:
-    gn = GaussianNoise(mu_range=(0.0, 1.0), std_range=(0.0, 1.0), device="cpu", seed=0)
-    x = torch.zeros(*SMALL_SHAPE)
-    out = gn(x)
-    assert out.shape == x.shape
-
-
 def test_gaussiannoise_call_wrong_dim_raises() -> None:
     gn = GaussianNoise(mu_range=(0.0, 1.0), std_range=(0.0, 1.0), device="cpu", seed=0)
     x = torch.ones(2, 2)

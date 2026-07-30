@@ -1,3 +1,6 @@
+API
+===
+
 .. toctree::
     :maxdepth: 1
 
@@ -6,6 +9,8 @@
     api/decorator
     api/geometries
     api/models
+    api/pipeline
+    api/sampling
     api/transforms
     api/io
     api/visualize

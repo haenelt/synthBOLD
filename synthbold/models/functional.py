@@ -2,7 +2,14 @@
 
 import torch
 
-__all__ = ["merge_labels", "spherical_to_cartesian", "dchi_to_dbz"]
+from synthbold.sampling import sample_1d
+
+__all__ = [
+    "merge_labels",
+    "labels_to_values",
+    "spherical_to_cartesian",
+    "dchi_to_dbz",
+]
 
 
 def merge_labels(*labels: torch.Tensor) -> torch.Tensor:
@@ -46,6 +53,64 @@ def merge_labels(*labels: torch.Tensor) -> torch.Tensor:
     return combined
 
 
+def labels_to_values(
+    labels: torch.Tensor,
+    value: torch.Tensor | None,
+    name: str,
+    low: float,
+    high: float,
+    device: torch.device,
+    generator: torch.Generator,
+    fill: float = 0.0,
+) -> torch.Tensor:
+    """Sample (or accept) one value per (batch, label) pair and scatter it into a
+    volume matching `labels`.
+
+    Values are drawn from one flat array shared across the batch, so each batch
+    element's labels are offset by the cumulative maximum label of preceding batch
+    elements (the same scheme as `merge_labels`'s offsets); this lets label ids
+    repeat across batch elements without colliding.
+
+    Args:
+        labels: Integer-labeled tensor of shape ``(B, ...)``. Background voxels are
+            assumed to be 0.
+        value: Optional externally supplied flat values of shape ``(n_label,)``,
+            where ``n_label`` is the sum, over batch elements, of each element's
+            largest label value. Sampled uniformly from ``[low, high)`` if not given.
+        name: Name of the parameter, used in the raised error message.
+        low: Lower bound of the sampling range.
+        high: Upper bound of the sampling range.
+        device: Target compute device.
+        generator: Random number generator for reproducibility.
+        fill: Value assigned to background (unlabeled) voxels.
+
+    Returns:
+        Float32 tensor of the same shape as `labels`, with each labeled voxel set to
+        its sampled/given value and background voxels set to `fill`.
+
+    Raises:
+        ValueError: If `value` is given and is not a 1D tensor of length `n_label`.
+    """
+    B = labels.shape[0]
+    # Per-batch label count, used to offset each batch element's label ids into one
+    # shared flat index space (same scheme as merge_labels).
+    n_label = labels.amax(dim=tuple(range(1, labels.ndim))).long()
+    offsets = torch.zeros(B, dtype=torch.long, device=device)
+    offsets[1:] = n_label[:-1].cumsum(0)
+    total_label = int(n_label.sum().item())
+
+    # One value per (batch, label) pair, sampled or accepted as given.
+    value = sample_1d(value, name, total_label, low, high, device, generator)
+
+    out = torch.full_like(labels, fill, dtype=torch.float32, device=device)
+    mask = labels > 0
+    batch_idx = mask.nonzero(as_tuple=True)[0]
+    # Map each foreground voxel's (batch, local label) to its flat index in `value`.
+    flat_idx = offsets[batch_idx] + labels[mask].long() - 1
+    out[mask] = value[flat_idx]
+    return out
+
+
 def spherical_to_cartesian(theta: torch.Tensor, phi: torch.Tensor) -> torch.Tensor:
     """Convert spherical coordinates (theta, phi) to Cartesian unit vectors.
 
@@ -71,7 +136,7 @@ def spherical_to_cartesian(theta: torch.Tensor, phi: torch.Tensor) -> torch.Tens
 
     B0_vec = torch.stack(
         [sin_theta * cos_phi, sin_theta * sin_phi, cos_theta], dim=1
-    )  # shape [B, 3]
+    )  # shape (B, 3)
     return B0_vec / B0_vec.norm(dim=1, keepdim=True)
 
 
@@ -138,7 +203,7 @@ def dchi_to_dbz(
         + b0_dir[:, 2, None, None, None] * z_grid
     )
 
-    # Compute dipole kernel for each batch [B, X, Y, Z]
+    # Compute dipole kernel for each batch (B, X, Y, Z)
     dipole_kernel = (1 / (4 * torch.pi)) * (3 * projection**2 - r2) / (r2 ** (5 / 2))
     dipole_kernel.masked_fill_(origin_mask, 0.0)
 

@@ -1,6 +1,7 @@
 /* Body text */
 body {
-    font-family: "Merriweather", Georgia, serif;
+    /* font-family: "Merriweather", Georgia, serif; */
+    font-family: "Roboto", "Helvetica Neue", Arial, sans-serif;
     font-weight: 400;   /* normal weight */
     line-height: 1.6;
     color: var(--color-foreground-primary);
@@ -8,14 +9,16 @@ body {
 
 /* Headings */
 h1, h2, h3, h4, h5, h6 {
-    font-family: "Lora", "Palatino Linotype", serif;
+    /* font-family: "Lora", "Palatino Linotype", serif; */
+    font-family: "Roboto", "Helvetica Neue", Arial, sans-serif;
     font-weight: 500;   /* slightly bolder than body */
     color: var(--color-foreground-primary);
 }
 
 /* Code blocks */
 .highlight pre {
-    font-family: "Courier New", monospace;
+    /* font-family: "Courier New", monospace; */
+    font-family: "Roboto Mono", "Courier New", monospace;
     font-size: 0.9em;
     line-height: 1.4;
 }

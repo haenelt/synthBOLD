@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 import numpy as np
 import pytest
@@ -9,7 +9,6 @@ from synthbold.base import (
     BaseGeometry,
     Model,
     ObjectGeometry,
-    Pipeline,
     RandomGeneratorMixin,
     Transform,
 )
@@ -31,6 +30,12 @@ class DummyBaseGeometry(BaseGeometry):
     def forward(self) -> torch.Tensor:
         return torch.ones(self.shape, device=self.device, dtype=self.dtype)
 
+    @classmethod
+    def from_config(cls, config: Config) -> Self:
+        return cls(
+            shape=config.geom.input_shape, device=config.device, seed=config.seed
+        )
+
 
 class DummyObjectGeometry(ObjectGeometry):
     """Concrete ObjectGeometry for tests: always masks the first half of X."""
@@ -40,11 +45,20 @@ class DummyObjectGeometry(ObjectGeometry):
         mask[: self.shape[0] // 2, :, :] = True
         return mask
 
+    @classmethod
+    def from_config(cls, config: Config) -> Self:
+        return cls(
+            shape=config.geom.input_shape,
+            fov=config.geom.fov,
+            device=config.device,
+            seed=config.seed,
+        )
+
 
 class DummyModel(Model):
     """Dummy model for testing: doubles the input tensor."""
 
-    def forward(self, data: torch.Tensor) -> torch.Tensor:
+    def forward(self, data: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         return data * 2.0
 
 
@@ -375,24 +389,3 @@ def test_transform_call() -> None:
 
     assert output.shape == (2, 2, 2)
     assert torch.all(output == 3.0)
-
-
-# --- Pipeline ---
-
-
-def test_pipeline() -> None:
-    """Test the Pipeline execution."""
-    t1 = DummyTransform(device="cpu")
-    t2 = DummyTransform(device="cpu")
-
-    pipeline = Pipeline([t1, t2])
-
-    input_data = torch.ones((2, 2, 2))
-
-    # t1 adds 2.0 -> 3.0
-    # t2 adds 2.0 -> 5.0
-    output = pipeline(input_data)
-
-    assert output.shape == (2, 2, 2)
-    assert torch.all(output == 5.0)
-    assert len(pipeline.transforms) == 2

@@ -128,13 +128,6 @@ def test_randomflip_call_4d_preserves_shape() -> None:
     assert out.shape == x.shape
 
 
-def test_randomflip_call_wrong_dim_raises() -> None:
-    rf = RandomFlip(device="cpu", seed=0)
-    x = torch.rand(4, 4)
-    with pytest.raises(ValueError):
-        rf(x)
-
-
 # --- GaussianSmoothing ---
 
 
@@ -211,16 +204,14 @@ def test_gaussiansmoothing_sample_anisotropic_shape() -> None:
     assert kernel.shape == torch.Size([2, 1, 3, 3, 3])
 
 
-def test_gaussiansmoothing_choose_sigma_invalid_nonpositive_raises() -> None:
-    gs = GaussianSmoothing(sigma_range=(0.0, 1.0), device="cpu")
+def test_gaussiansmoothing_init_nonpositive_sigma_raises() -> None:
     with pytest.raises(ValueError):
-        gs.sample((2, *SMALL_SHAPE))
+        GaussianSmoothing(sigma_range=(0.0, 1.0), device="cpu")
 
 
-def test_gaussiansmoothing_choose_sigma_min_gt_max_raises() -> None:
-    gs = GaussianSmoothing(sigma_range=(2.0, 1.0), device="cpu")
+def test_gaussiansmoothing_init_min_gt_max_raises() -> None:
     with pytest.raises(ValueError):
-        gs.sample((2, *SMALL_SHAPE))
+        GaussianSmoothing(sigma_range=(2.0, 1.0), device="cpu")
 
 
 def test_gaussiansmoothing_apply_preserves_shape_4d() -> None:
@@ -333,28 +324,25 @@ def test_gaussiansharpening_sample_different_seeds_differ() -> None:
     assert not torch.equal(k1, k2)
 
 
-def test_gaussiansharpening_choose_sigma_invalid_nonpositive_raises() -> None:
-    gs = GaussianSharpening(
-        sigma_range=(0.0, 1.0), amount_range=(0.5, 2.0), device="cpu"
-    )
+def test_gaussiansharpening_init_nonpositive_sigma_raises() -> None:
     with pytest.raises(ValueError):
-        gs.sample((2, *SMALL_SHAPE))
+        GaussianSharpening(
+            sigma_range=(0.0, 1.0), amount_range=(0.5, 2.0), device="cpu"
+        )
 
 
-def test_gaussiansharpening_choose_sigma_min_gt_max_raises() -> None:
-    gs = GaussianSharpening(
-        sigma_range=(2.0, 1.0), amount_range=(0.5, 2.0), device="cpu"
-    )
+def test_gaussiansharpening_init_min_gt_max_sigma_raises() -> None:
     with pytest.raises(ValueError):
-        gs.sample((2, *SMALL_SHAPE))
+        GaussianSharpening(
+            sigma_range=(2.0, 1.0), amount_range=(0.5, 2.0), device="cpu"
+        )
 
 
-def test_gaussiansharpening_choose_amount_negative_raises() -> None:
-    gs = GaussianSharpening(
-        sigma_range=(0.5, 1.0), amount_range=(-0.5, 1.0), device="cpu"
-    )
+def test_gaussiansharpening_init_negative_amount_raises() -> None:
     with pytest.raises(ValueError):
-        gs.sample((2, *SMALL_SHAPE))
+        GaussianSharpening(
+            sigma_range=(0.5, 1.0), amount_range=(-0.5, 1.0), device="cpu"
+        )
 
 
 def test_gaussiansharpening_apply_preserves_shape_4d() -> None:

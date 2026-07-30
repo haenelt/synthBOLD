@@ -3,11 +3,19 @@ import torch
 
 from synthbold.models.functional import (
     dchi_to_dbz,
+    labels_to_values,
     merge_labels,
     spherical_to_cartesian,
 )
 
 SMALL_SHAPE = (4, 4, 4)
+DEVICE = torch.device("cpu")
+
+
+def _generator(seed: int = 0) -> torch.Generator:
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(seed)
+    return generator
 
 
 # --- merge_labels ---
@@ -279,3 +287,83 @@ def test_dbz_batch_elements_computed_independently() -> None:
 
     assert torch.allclose(out_batch[0], out_a[0], atol=1e-5)
     assert torch.allclose(out_batch[1], out_b[0], atol=1e-5)
+
+
+# --- labels_to_values ---
+
+
+def test_output_shape_and_dtype_match_labels() -> None:
+    labels = torch.zeros((2, *SMALL_SHAPE), dtype=torch.int64)
+    labels[0, 0, 0, 0] = 1
+    out = labels_to_values(labels, None, "value", 0.0, 1.0, DEVICE, _generator())
+    assert out.shape == labels.shape
+    assert out.dtype == torch.float32
+
+
+def test_all_background_returns_fill_everywhere() -> None:
+    labels = torch.zeros((1, *SMALL_SHAPE), dtype=torch.int64)
+    out = labels_to_values(
+        labels, None, "value", 1.0, 2.0, DEVICE, _generator(), fill=-1.0
+    )
+    assert torch.all(out == -1.0)
+
+
+def test_given_values_scattered_to_matching_labels() -> None:
+    labels = torch.zeros((1, *SMALL_SHAPE), dtype=torch.int64)
+    labels[0, 0, 0, 0] = 1
+    labels[0, 1, 1, 1] = 2
+    value = torch.tensor([10.0, 20.0])
+    out = labels_to_values(labels, value, "value", 0.0, 1.0, DEVICE, _generator())
+    assert out[0, 0, 0, 0] == 10.0
+    assert out[0, 1, 1, 1] == 20.0
+    assert out[0, 2, 2, 2] == 0.0
+
+
+def test_all_voxels_of_same_label_get_same_value() -> None:
+    labels = torch.zeros((1, *SMALL_SHAPE), dtype=torch.int64)
+    labels[0, 0, 0, 0] = 1
+    labels[0, 0, 0, 1] = 1
+    labels[0, 1, 1, 1] = 2
+    value = torch.tensor([5.0, 9.0])
+    out = labels_to_values(labels, value, "value", 0.0, 1.0, DEVICE, _generator())
+    assert out[0, 0, 0, 0] == 5.0
+    assert out[0, 0, 0, 1] == 5.0
+    assert out[0, 1, 1, 1] == 9.0
+
+
+def test_batch_elements_use_disjoint_offsets_for_given_values() -> None:
+    labels = torch.zeros((2, *SMALL_SHAPE), dtype=torch.int64)
+    labels[0, 0, 0, 0] = 1
+    labels[1, 1, 1, 1] = 1
+    value = torch.tensor([100.0, 200.0])
+    out = labels_to_values(labels, value, "value", 0.0, 1.0, DEVICE, _generator())
+    assert out[0, 0, 0, 0] == 100.0
+    assert out[1, 1, 1, 1] == 200.0
+
+
+def test_sampled_values_within_range_when_value_not_given() -> None:
+    labels = torch.zeros((1, *SMALL_SHAPE), dtype=torch.int64)
+    labels[0, 0, 0, 0] = 1
+    labels[0, 1, 1, 1] = 2
+    labels[0, 2, 2, 2] = 3
+    out = labels_to_values(labels, None, "value", 2.0, 5.0, DEVICE, _generator())
+    foreground = out[labels > 0]
+    assert foreground.min().item() >= 2.0
+    assert foreground.max().item() < 5.0
+
+
+def test_reproducible_with_same_seed() -> None:
+    labels = torch.zeros((1, *SMALL_SHAPE), dtype=torch.int64)
+    labels[0, 0, 0, 0] = 1
+    out1 = labels_to_values(labels, None, "value", 0.0, 1.0, DEVICE, _generator(42))
+    out2 = labels_to_values(labels, None, "value", 0.0, 1.0, DEVICE, _generator(42))
+    assert torch.equal(out1, out2)
+
+
+def test_raises_on_wrong_value_shape() -> None:
+    labels = torch.zeros((1, *SMALL_SHAPE), dtype=torch.int64)
+    labels[0, 0, 0, 0] = 1
+    labels[0, 1, 1, 1] = 2
+    value = torch.zeros(1)
+    with pytest.raises(ValueError):
+        labels_to_values(labels, value, "value", 0.0, 1.0, DEVICE, _generator())

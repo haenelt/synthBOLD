@@ -6,6 +6,7 @@ import torch
 
 from synthbold.base import Transform
 from synthbold.config import Config
+from synthbold.sampling import sample_uniform
 from synthbold.transforms.functional import sample_lowres_noise
 
 __all__ = ["BiasField", "GammaTransform"]
@@ -26,6 +27,9 @@ class BiasField(Transform):
         amplitude_range: Minimum and maximum scaling factor for bias field variation.
         device: Target compute device, e.g. 'cuda' or 'cpu'.
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If any `lowres_shape` dimension is less than 1.
     """
 
     def __init__(
@@ -36,6 +40,11 @@ class BiasField(Transform):
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
+        if any(d < 1 for d in lowres_shape):
+            raise ValueError(
+                f"lowres_shape dimensions must be >= 1, got {lowres_shape}."
+            )
+
         self.lowres_shape = lowres_shape
         self.amplitude_range = amplitude_range
 
@@ -103,6 +112,9 @@ class GammaTransform(Transform):
         gamma_range: Minimum and maximum gamma exponent. Must be strictly positive.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `gamma_range` is not strictly positive.
     """
 
     def __init__(
@@ -114,6 +126,7 @@ class GammaTransform(Transform):
         super().__init__(device=device, seed=seed)
         if gamma_range[0] <= 0:
             raise ValueError("gamma_range must be strictly positive.")
+
         self.gamma_range = gamma_range
 
     def sample(self, shape: tuple[int, ...]) -> torch.Tensor:
@@ -121,8 +134,10 @@ class GammaTransform(Transform):
         ``(B, X, Y, Z)``."""
         B, _, _, _ = shape
 
-        gamma = self._choose_gamma(B)
-        return gamma.view(B, 1, 1, 1)
+        gamma = sample_uniform(
+            B, self.gamma_range[0], self.gamma_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
+        return gamma
 
     @staticmethod
     def apply(data: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
@@ -154,10 +169,4 @@ class GammaTransform(Transform):
             gamma_range=gamma_range,
             device=config.device,
             seed=config.seed,
-        )
-
-    def _choose_gamma(self, n_vol: int) -> torch.Tensor:
-        """Randomly select gamma within the range."""
-        return torch.empty(n_vol, device=self.device).uniform_(
-            self.gamma_range[0], self.gamma_range[1], generator=self.generator
         )

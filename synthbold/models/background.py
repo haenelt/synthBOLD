@@ -1,12 +1,19 @@
 """Generation of background data."""
 
-from typing import Self
+from typing import Any, Self
 
 import torch
 
-from synthbold.base import Model, Pipeline, Transform
+from synthbold.base import Model, Transform
 from synthbold.config import Config
-from synthbold.transforms import RandomFlip
+from synthbold.sampling import sample_uniform
+from synthbold.transforms import (
+    BiasField,
+    DeformedSphericalMask,
+    GaussianSmoothing,
+    RandomFlip,
+)
+from synthbold.transforms.functional import Pipeline
 
 __all__ = ["BackgroundModel"]
 
@@ -25,8 +32,13 @@ class BackgroundModel(Model):
         mu_range: Range of values to sample the mean intensity from.
         std_range: Range of values to sample the standard deviation from.
         transforms: List of transformations to apply.
+        transform_prob: Probability of applying each transform, evaluated independently
+            per transform and per batch element.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `std_range` contains a negative value.
 
     Notes:
         The generated background maps can be returned as a PyTorch tensor and saved to
@@ -46,20 +58,29 @@ class BackgroundModel(Model):
         mu_range: tuple[float, float],
         std_range: tuple[float, float],
         transforms: list[Transform] | None = None,
+        transform_prob: float = 1.0,
         device: str = "cpu",
         seed: int | None = None,
     ) -> None:
         super().__init__(seed=seed, device=device)
+        if std_range[0] < 0 or std_range[1] < 0:
+            raise ValueError(
+                f"Standard deviations must be non-negative, got {std_range}."
+            )
+
         self.mu_range = mu_range
         self.std_range = std_range
-        self.pipeline = Pipeline(transforms or [])
+        self.pipeline = Pipeline(
+            transforms or [], prob=transform_prob, device=device, seed=seed
+        )
 
-    def forward(self, data: torch.Tensor) -> torch.Tensor:
+    def forward(self, data: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Generate random background map.
 
         Args:
-            data: Integer-labeled 4D tensor of shape ``(B, X, Y, Z)``. Must contain
-                labels greater than or equal to 1.
+            data: Integer-labeled 4D tensor of shape ``(B, X, Y, Z)``. Label `0` is
+                treated as background, if present, and left at zero intensity.
+            **kwargs: Unused; accepted for interface compatibility with `Model`.
 
         Returns:
             Synthesized background tensor of the same shape as the input tensor.
@@ -99,12 +120,8 @@ class BackgroundModel(Model):
 
         mu_low, mu_high = self.mu_range
         std_low, std_high = self.std_range
-        mus = torch.empty(n_labels, device=self.device).uniform_(
-            mu_low, mu_high, generator=self.generator
-        )
-        stds = torch.empty(n_labels, device=self.device).uniform_(
-            std_low, std_high, generator=self.generator
-        )
+        mus = sample_uniform(n_labels, mu_low, mu_high, self.device, self.generator)
+        stds = sample_uniform(n_labels, std_low, std_high, self.device, self.generator)
 
         # Sorted unique labels put background (0) first, so subtracting its
         # presence turns `inverse` into a 0-based label index, with -1 for background.
@@ -128,11 +145,17 @@ class BackgroundModel(Model):
             config.physio.background_std.min,
             config.physio.background_std.max,
         )
-        transforms: list[Transform] = [RandomFlip.from_config(config)]
+        transforms: list[Transform] = [
+            RandomFlip.from_config(config),
+            BiasField.from_config(config),
+            DeformedSphericalMask.from_config(config),
+            GaussianSmoothing.from_config(config),
+        ]
         return cls(
             mu_range=mu_range,
             std_range=std_range,
             transforms=transforms,
+            transform_prob=config.transform_prob,
             device=config.device,
             seed=config.seed,
         )

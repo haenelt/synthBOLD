@@ -56,7 +56,7 @@ class GeometryParams(BaseModel):
         cylinder_num: Number of generated cylinders.
         cylinder_vf: Volume fraction of cylinders.
         cylinder_diameter: Range of cylinder diameters in mm.
-        allow_overlap: Allow cylinders to overlap.
+        cylinder_allow_overlap: Allow cylinders to overlap.
         sphere_num: Number of generated spheres.
         sphere_vf: Volume fraction of spheres.
         sphere_diameter: Range of sphere diameters in mm.
@@ -69,6 +69,11 @@ class GeometryParams(BaseModel):
         cube_vf: Volume fraction of cubes.
         cube_diameter: Range of cube circumdiameters in mm.
         cube_allow_overlap: Allow cubes to overlap.
+        toroid_num: Number of generated toroids.
+        toroid_vf: Volume fraction of toroids.
+        toroid_diameter: Range of toroid major diameters in mm.
+        toroid_tube_ratio: Range of toroid tube-to-major radius ratios.
+        toroid_allow_overlap: Allow toroids to overlap.
     """
 
     # general geometry
@@ -92,7 +97,7 @@ class GeometryParams(BaseModel):
     # object geometry: tetrahedra
     tetrahedron_num: int | None = None
     tetrahedron_vf: Range = Range(min=0.005, max=0.01)
-    tetrahedron_diameter: Range = Range(min=0.2, max=2.0)
+    tetrahedron_diameter: Range = Range(min=0.4, max=4.0)
     tetrahedron_allow_overlap: bool = True
 
     # object geometry: cubes
@@ -113,7 +118,19 @@ class GeometryParams(BaseModel):
     def check_divisible_output(
         cls, v: tuple[int, ...], info: ValidationInfo
     ) -> tuple[int, ...]:
-        """Validates that input_shape is divisible by output_shape in every dim."""
+        """Validates that input_shape is divisible by output_shape in every dim.
+
+        Args:
+            v: The value of output_shape.
+            info: Validation context containing other fields.
+
+        Returns:
+            The validated output_shape value.
+
+        Raises:
+            ValueError: If any `input_shape` dimension is not evenly divisible by the
+                corresponding `output_shape` dimension.
+        """
         input_shape = info.data.get("input_shape")
         if input_shape is None:
             return v
@@ -135,9 +152,6 @@ class PhysioParams(BaseModel):
         label_scale: Scale factor of the noise map.
         background_mu: Mean intensity range for different tissue compartments.
         background_std: Standard deviation range for intensities within tissue types.
-
-    Note:
-        num_vessels and cbv are mutually exclusive.
     """
 
     label_displacement_shape: tuple[int, int, int] = (4, 4, 4)
@@ -154,8 +168,8 @@ class PhysicsParams(BaseModel):
     b0: Static magnetic field strength in Tesla.
     gamma: Gyromagnetic ratio in ms^-1 T^-1
     chi: Vessel susceptibilities (difference between IV and EV) in ppm.
-    T2: Range of T2 relaxation times in ms.
-    TE: Range of echo times in ms.
+    t2: Range of T2 relaxation times in ms.
+    te: Range of echo times in ms.
     theta: Range of polar angles in radians for B0 orientation.
     phi: Range of azimuthal angles in radians for B0 orientation.
     spin_echo: Time of spin echo in ms if exists.
@@ -164,8 +178,8 @@ class PhysicsParams(BaseModel):
     b0: float = 7.0
     gamma: float = 2.675221e5
     chi: Range = Range(min=-0.01e-6, max=0.1e-6)
-    T2: Range = Range(min=5.0, max=50.0)
-    TE: Range = Range(min=5.0, max=100.0)
+    t2: Range = Range(min=5.0, max=50.0)
+    te: Range = Range(min=5.0, max=100.0)
     theta: Range = Range(min=0.0, max=np.pi)
     phi: Range = Range(min=0.0, max=2 * np.pi)
     spin_echo: float | None = 64.0
@@ -218,8 +232,8 @@ class TransformParams(BaseModel):
     gamma_exponent: Range = Range(min=0.5, max=2.0)
 
     # transform: GaussianNoise
-    gnoise_mu: Range = Range(min=0.0, max=10.0)
-    gnoise_std: Range = Range(min=0.0, max=2.0)
+    gnoise_mu: Range = Range(min=-0.2, max=0.2)
+    gnoise_std: Range = Range(min=0.0, max=0.1)
 
     # transform: KSpaceSpikeNoise
     spike_num: tuple[int, int] = (1, 3)
@@ -248,11 +262,11 @@ class TransformParams(BaseModel):
     speckle_std: Range = Range(min=0.0, max=0.5)
 
     # transform: RandomFLip
-    flip_prob: float = 0.5
+    flip_prob: float = 1.0
 
     # transform: SphericalMask / DeformedSphericalMask
-    sphere_radius: Range = Range(min=50.0, max=80.0)
-    sphere_prob: float = 1.0
+    sphere_radius: Range = Range(min=80.0, max=100.0)
+    sphere_prob: float = 0.5
     sphere_deform_amplitude: float = 0.3
     sphere_deform_shape: tuple[int, int, int] = (4, 4, 4)
 
@@ -285,6 +299,7 @@ class Config(BaseModel):
 
     seed: int = 42  # Random seed for reproducibility.
     device: str = "cpu"  # Computation device to use.
+    transform_prob: float = 1.0  # Probability for each transform in pipeline.
     geom: GeometryParams = GeometryParams()
     physio: PhysioParams = PhysioParams()
     physics: PhysicsParams = PhysicsParams()

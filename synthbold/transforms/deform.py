@@ -28,6 +28,9 @@ class ElasticDeformation(Transform):
             normalization of the displacement field.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `sigma` is not strictly positive.
     """
 
     def __init__(
@@ -38,6 +41,9 @@ class ElasticDeformation(Transform):
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
+        if sigma <= 0:
+            raise ValueError(f"sigma must be strictly positive, got {sigma}.")
+
         self.sigma = sigma
         self.max_disp = max_disp
         self.gaussian_filter = GaussianSmooth(sigma)
@@ -75,7 +81,11 @@ class ElasticDeformation(Transform):
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        """Constructs ElasticDeformation instance from a config object."""
+        """Constructs ElasticDeformation instance from a config object.
+
+        Raises:
+            ValueError: If `config.transform.elastic_sigma` is not set in the config.
+        """
         if config.transform.elastic_sigma is None:
             raise ValueError(
                 "Elastic deformation parameters are not set in the config."
@@ -102,6 +112,9 @@ class CaliberDeformation(Transform):
         alpha: Radius variation of random radius field.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `sigma` is not strictly positive.
     """
 
     def __init__(
@@ -112,6 +125,9 @@ class CaliberDeformation(Transform):
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
+        if sigma <= 0:
+            raise ValueError(f"sigma must be strictly positive, got {sigma}.")
+
         self.sigma = sigma
         self.alpha = alpha
         self.gaussian_filter = GaussianSmooth(sigma)
@@ -153,7 +169,10 @@ class CaliberDeformation(Transform):
         B = data.shape[0]
         labels = torch.unique(data)
         labels = labels[labels != 0]
-        result = torch.zeros(data.shape, dtype=data.dtype, device=data.device)
+        # Original voxels are preserved unconditionally so that one label's dilation
+        # can never sever another label's own territory (see caliber deformation
+        # docs for the "cut in the middle" failure mode this avoids).
+        result = data.clone()
 
         # Loop over labels present anywhere in the batch
         for label in labels:
@@ -167,13 +186,19 @@ class CaliberDeformation(Transform):
                 distance_map <= radius_field, device=data.device, dtype=torch.float32
             )
             data_transformed = data_transformed * present
-            result[data_transformed > 0] = i
+            # Only grow into background voxels; never steal another label's voxels.
+            grow_mask = (data_transformed > 0) & (data == 0)
+            result[grow_mask] = i
 
         return result
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        """Constructs CaliberTransform instance from a config object."""
+        """Constructs CaliberTransform instance from a config object.
+
+        Raises:
+            ValueError: If `config.transform.caliber_sigma` is not set in the config.
+        """
         if config.transform.caliber_sigma is None:
             raise ValueError("Caliber parameters are not set in the config.")
         return cls(

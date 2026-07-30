@@ -1,5 +1,8 @@
 """Reusable utilities to handle common tensor validation and manipulation tasks."""
 
+import importlib.metadata
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,9 +16,11 @@ from skimage import measure
 __all__ = [
     "load_nifti",
     "load_zarr",
+    "save_batch",
     "save_zarr",
     "save_nifti",
     "save_mesh",
+    "zarr_attributes",
 ]
 
 
@@ -27,6 +32,9 @@ def load_nifti(fname: str | Path) -> tuple[np.ndarray, np.ndarray, nb.Nifti1Head
 
     Returns:
         Tuple of the data array, affine matrix, and header.
+
+    Raises:
+        TypeError: If the loaded file is not a `Nifti1Image`.
     """
     img = cast(nb.Nifti1Image, nb.load(fname))
     if not isinstance(img, nb.Nifti1Image):
@@ -42,6 +50,9 @@ def load_zarr(fname: str | Path) -> tuple[np.ndarray, dict[str, Any]]:
 
     Returns:
         Tuple of the data array and attributes.
+
+    Raises:
+        ValueError: If the ZARR group contains more than one array.
     """
     z = zarr.open(fname, mode="r")
     if isinstance(z, zarr.Group):
@@ -68,6 +79,9 @@ def save_zarr(
         fname: File name for saving the ZARR file.
         data: Data array to save.
         attrs: Attributes to save with the data.
+
+    Raises:
+        TypeError: If the created ZARR object is not a `zarr.Array`.
     """
     fname = Path(fname)
     fname.parent.mkdir(exist_ok=True, parents=True)
@@ -118,7 +132,10 @@ def save_nifti(
         permute: Whether to permute the axes of the data.
         niivue: Whether to convert the data for fast visualization with Niivue.
 
-    Note:
+    Raises:
+        TypeError: If `data` is not a NumPy array (after tensor conversion).
+
+    Notes:
         For fast visualization with Niivue, the flag converts the numpy array to
         integer format and scales the data to maximum integer range.
     """
@@ -159,6 +176,36 @@ def save_nifti(
     nb.save(img, fname)
 
 
+def save_batch(
+    fields: Mapping[str, np.ndarray | torch.Tensor],
+    dirname: str | Path,
+    fmt: str,
+    suffix: str = "",
+    attrs: dict[str, Any] | None = None,
+) -> None:
+    """Saves each field in `fields` to `<dirname>/<field><suffix>.<fmt>`.
+
+    Args:
+        fields: Mapping of field name to data array, e.g. a `NamedTuple`'s `_asdict()`.
+        dirname: Directory to save each field's file into.
+        fmt: File format, either ``"zarr"`` or ``"nii"``.
+        suffix: Suffix inserted between each field name and its extension.
+        attrs: Attributes to save alongside ZARR arrays. Ignored for NIfTI.
+
+    Raises:
+        ValueError: If `fmt` is not ``"zarr"`` or ``"nii"``.
+    """
+    if fmt not in ("zarr", "nii"):
+        raise ValueError(f"fmt must be 'zarr' or 'nii', got {fmt!r}.")
+    dirname = Path(dirname)
+    for field, data in fields.items():
+        out_fname = dirname / f"{field}{suffix}.{fmt}"
+        if fmt == "zarr":
+            save_zarr(out_fname, data, attrs or {})
+        else:
+            save_nifti(out_fname, data, permute=True)
+
+
 def save_mesh(fname: str | Path, data: np.ndarray | torch.Tensor) -> None:
     """Creates a mesh from a binary array using the marching cubes algorithm and saves
     the mesh to disk in FreeSurfer binary format.
@@ -166,6 +213,10 @@ def save_mesh(fname: str | Path, data: np.ndarray | torch.Tensor) -> None:
     Args:
         fname: File name for saving mesh file in FreeSurfer format.
         data: Data array to save.
+
+    Raises:
+        ValueError: If `data` is not a NumPy array (after tensor conversion), or if
+            it is not 3-dimensional.
     """
     fname = Path(fname)
     fname.parent.mkdir(exist_ok=True, parents=True)
@@ -183,3 +234,31 @@ def save_mesh(fname: str | Path, data: np.ndarray | torch.Tensor) -> None:
     data = data.astype(bool)
     verts, faces, _, _ = measure.marching_cubes(data)
     write_geometry(fname, verts, faces)
+
+
+def zarr_attributes(
+    cls_name: str, device: torch.device, seed: int | None
+) -> dict[str, Any]:
+    """Build common metadata attributes for ZARR storage.
+
+    Args:
+        cls_name: Name of the generating class, stored under ``"generator"``.
+        device: PyTorch device the data was generated on.
+        seed: Random seed used for generation, if any.
+
+    Returns:
+        Dict of metadata suitable for passing as `attrs` to `save_zarr`.
+    """
+    try:
+        pkg_name = __name__.split(".")[0]
+        version = importlib.metadata.version(pkg_name)
+    except importlib.metadata.PackageNotFoundError:
+        version = "unknown"
+    return {
+        "generator": cls_name,
+        "created_at": datetime.now(UTC).isoformat(),
+        "version": version,
+        "axis_order": ("N", "X", "Y", "Z"),
+        "device": str(device),
+        "seed": seed,
+    }

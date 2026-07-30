@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="700"
+     height="140"
+     viewBox="0 0 700 140">
+
+  <style>
+    .synth {
+      font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+      font-size: 82px;
+      font-weight: 400;
+      fill: #2563EB;
+    }
+
+    .bold {
+      font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+      font-size: 82px;
+      font-weight: 800;
+      fill: #F26B5B;
+    }
+  </style>
+
+  <text x="20" y="95">
+    <tspan class="synth">synth</tspan><tspan class="bold">BOLD</tspan>
+  </text>
+</svg>

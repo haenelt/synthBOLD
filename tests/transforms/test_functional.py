@@ -1,13 +1,36 @@
+from typing import Self
+
 import torch
 
+from synthbold.base import Transform
+from synthbold.config import Config
 from synthbold.transforms.functional import (
+    Pipeline,
     apply_deformation,
+    percentile_scale,
+    psc,
     sample_fractal_noise,
     sample_lowres_noise,
+    zscore,
 )
 
 SHAPE_CUBE = (6, 6, 6)
 SHAPE_NONCUBE = (4, 6, 8)
+
+
+class DummyTransform(Transform):
+    """Dummy transform for testing."""
+
+    def sample(self, shape: tuple[int, ...]) -> torch.Tensor:
+        return torch.ones(shape) * 2.0
+
+    @staticmethod
+    def apply(x: torch.Tensor, transform: torch.Tensor) -> torch.Tensor:
+        return x + transform
+
+    @classmethod
+    def from_config(cls, config: Config) -> Self:
+        return cls(device="cpu")
 
 
 # --- sample_lowres_noise ---
@@ -270,3 +293,127 @@ def test_apply_deformation_batch_elements_independent() -> None:
     assert torch.equal(out[:1], out0)
     assert torch.equal(out[1:], out1)
     assert not torch.equal(out[0], out[1])
+
+
+# --- Pipeline ---
+
+
+def test_pipeline() -> None:
+    """Test the Pipeline execution."""
+    t1 = DummyTransform(device="cpu")
+    t2 = DummyTransform(device="cpu")
+
+    pipeline = Pipeline([t1, t2], prob=1.0)
+
+    input_data = torch.ones((2, 2, 2, 2))
+
+    # prob=1.0 forces both transforms to apply to every batch element:
+    # t1 adds 2.0 -> 3.0
+    # t2 adds 2.0 -> 5.0
+    output = pipeline(input_data)
+
+    assert output.shape == (2, 2, 2, 2)
+    assert torch.all(output == 5.0)
+    assert len(pipeline.transforms) == 2
+
+
+# --- zscore ---
+
+
+def test_zscore_output_shape() -> None:
+    data = torch.rand(3, 4, 5, 6)
+    out = zscore(data)
+    assert out.shape == data.shape
+
+
+def test_zscore_zero_mean_unit_std() -> None:
+    torch.manual_seed(0)
+    data = torch.randn(4, 10, 10, 10) * 5 + 3
+    out = zscore(data)
+    dims = (1, 2, 3)
+    assert torch.allclose(out.mean(dim=dims), torch.zeros(4), atol=1e-5)
+    assert torch.allclose(out.std(dim=dims, unbiased=False), torch.ones(4), atol=1e-4)
+
+
+def test_zscore_constant_input_is_near_zero() -> None:
+    # std is 0 for a constant input; eps in the denominator should keep this finite
+    # rather than producing NaN/inf.
+    data = torch.full((2, 3, 3, 3), 7.0)
+    out = zscore(data)
+    assert torch.isfinite(out).all()
+    assert torch.allclose(out, torch.zeros_like(out), atol=1e-3)
+
+
+def test_zscore_invariant_to_affine_transform() -> None:
+    # z-scoring is invariant to per-element scale and offset, so an affine transform
+    # of one batch element should normalize identically to another.
+    base = torch.arange(64).reshape(4, 4, 4).float()
+    data = torch.stack([base, base * 10 + 100])
+    out = zscore(data)
+    assert torch.allclose(out[0], out[1], atol=1e-4)
+
+
+# --- psc ---
+
+
+def test_psc_output_shape() -> None:
+    data = torch.rand(3, 4, 5, 6) + 1.0
+    out = psc(data)
+    assert out.shape == data.shape
+
+
+def test_psc_known_values() -> None:
+    data = torch.tensor([8.0, 10.0, 12.0]).view(1, 3, 1, 1)
+    out = psc(data)
+    expected = torch.tensor([-20.0, 0.0, 20.0]).view(1, 3, 1, 1)
+    assert torch.allclose(out, expected, atol=1e-4)
+
+
+def test_psc_invariant_to_scale() -> None:
+    # percent signal change is invariant to a per-element multiplicative scale, so
+    # scaling one batch element should give the same percent deviations as another.
+    base = torch.tensor([8.0, 10.0, 12.0])
+    data = torch.stack([base, base * 10]).view(2, 3, 1, 1)
+    out = psc(data)
+    assert torch.allclose(out[0], out[1], atol=1e-4)
+
+
+# --- percentile_scale ---
+
+
+def test_percentile_scale_output_shape() -> None:
+    data = torch.rand(3, 4, 5, 6)
+    out = percentile_scale(data)
+    assert out.shape == data.shape
+
+
+def test_percentile_scale_output_in_unit_range() -> None:
+    torch.manual_seed(0)
+    data = torch.randn(2, 10, 10, 10)
+    out = percentile_scale(data)
+    assert out.min() >= 0.0
+    assert out.max() <= 1.0
+
+
+def test_percentile_scale_known_values() -> None:
+    data = torch.linspace(0, 100, 101).view(1, 101, 1, 1)
+    out = percentile_scale(data, lower=0.1, upper=0.9).view(-1)
+    assert torch.isclose(out[10], torch.tensor(0.0), atol=1e-3)
+    assert torch.isclose(out[50], torch.tensor(0.5), atol=1e-3)
+    assert torch.isclose(out[90], torch.tensor(1.0), atol=1e-3)
+
+
+def test_percentile_scale_clamps_outliers() -> None:
+    data = torch.linspace(0, 100, 101).view(1, 101, 1, 1)
+    out = percentile_scale(data, lower=0.1, upper=0.9).view(-1)
+    assert out[0] == 0.0
+    assert out[-1] == 1.0
+
+
+def test_percentile_scale_batch_elements_independent() -> None:
+    # Same relative distribution shape (linear rescale), so per-element percentile
+    # normalization should produce identical output regardless of the raw scale.
+    base = torch.linspace(0, 100, 101)
+    data = torch.stack([base, base * 10]).view(2, 101, 1, 1)
+    out = percentile_scale(data)
+    assert torch.allclose(out[0], out[1], atol=1e-4)

@@ -26,13 +26,17 @@ class Shapes(BaseGeometry):
     These masks can be used to define random background tissue signal for synthetic
     BOLD data generation.
 
-    Attributes:
+    Args:
         shape: Matrix size of the target shape mask ``(X, Y, Z)``.
         J: Number of distinct labels.
         displacement_shape: Matrix size of the low-resolution displacement field.
         scale: Scale factor of the low-resolution displacement field.
         device: Target compute device, e.g. 'cuda' or 'cpu'.
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `J` is less than 1, or if any `displacement_shape` dimension is
+            less than 1.
 
     Examples:
         Create 100 random maps and save to disk:
@@ -62,6 +66,13 @@ class Shapes(BaseGeometry):
         seed: int | None = None,
     ) -> None:
         super().__init__(shape, seed=seed, device=device)
+
+        if J < 1:
+            raise ValueError(f"J must be >= 1, got {J}.")
+        if any(d < 1 for d in displacement_shape):
+            raise ValueError(
+                f"displacement_shape dimensions must be >= 1, got {displacement_shape}."
+            )
 
         self.J = J
         self.displacement_shape = displacement_shape
@@ -157,7 +168,7 @@ class Cylinders(ObjectGeometry):
     These masks can be used to define random vessel distributions with set blood volume
     fraction and vessel diameters.
 
-    Attributes:
+    Args:
         shape: Matrix size of the cylinder label map ``(X, Y, Z)``.
         fov: Field of view in mm, used to compute voxel size.
         num_objects: Fixed number of cylinders to generate. Mutually exclusive with
@@ -197,16 +208,7 @@ class Cylinders(ObjectGeometry):
         axis = axis / torch.norm(axis)
 
         # Random point inside volume
-        point = torch.stack(
-            [
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[0] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[1] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[2] - 1),
-            ]
-        ).squeeze()
+        point = self._random_point()
 
         # Intersect with box
         tmin, tmax = self._intersect_line_with_box(point, axis)
@@ -326,16 +328,7 @@ class Spheres(ObjectGeometry):
             inside the sphere.
         """
         # Random center inside volume
-        center = torch.stack(
-            [
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[0] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[1] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[2] - 1),
-            ]
-        )
+        center = self._random_point()
 
         # Random radius
         radius = (
@@ -376,22 +369,8 @@ class Tetrahedra(ObjectGeometry):
 
     Generates random tetrahedral label masks. Each tetrahedron is a regular tetrahedron
     placed at a random position in the volume with a random orientation and a random
-    circumradius drawn uniformly from ``diameter_range``. Volume fraction and diameters
-    are randomly chosen from a uniform distribution with set boundaries. Optionally,
-    instead of using volume fraction, the number of tetrahedra can be set directly.
-
-    Attributes:
-        shape: Matrix size of the tetrahedron label map ``(X, Y, Z)``.
-        fov: Field of view in mm, used to compute voxel size.
-        num_objects: Fixed number of tetrahedra to generate. Mutually exclusive with
-            `vf_range`.
-        vf_range: Range of target volume fractions. Tetrahedra are added until the
-            volume fraction is reached. Mutually exclusive with `num_objects`.
-        diameter_range: Range of tetrahedron circumdiameters in mm.
-        allow_overlap: If False, tetrahedra are only added if they contribute new
-            voxels.
-        device: Target compute device, e.g. 'cuda' or 'cpu'.
-        seed: Random seed for reproducibility.
+    circumradius drawn uniformly from ``diameter_range``. Follows the same interface as
+    :class:`Cylinders`; see that class for a full description of the shared parameters.
 
     Examples:
         Create 100 random tetrahedron label maps and save to disk:
@@ -428,16 +407,7 @@ class Tetrahedra(ObjectGeometry):
             tetrahedron.
         """
         # Random center inside volume
-        center = torch.stack(
-            [
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[0] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[1] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[2] - 1),
-            ]
-        )
+        center = self._random_point()
 
         # Random circumradius
         radius = (
@@ -446,12 +416,8 @@ class Tetrahedra(ObjectGeometry):
             + self.radius_range[0]
         )
 
-        # Random rotation via QR decomposition of a random normal matrix
-        rand_mat = torch.randn(3, 3, device=self.device, generator=self.generator)
-        Q, _ = torch.linalg.qr(rand_mat)
-        # Ensure det = +1 (proper rotation, not a reflection)
-        if torch.det(Q) < 0:
-            Q = -Q
+        # Random rotation
+        Q = self._random_rotation()
 
         # Rotate, scale, and translate canonical vertices
         verts = self._CANONICAL_VERTICES.to(self.device)  # (4, 3), circumradius = 1
@@ -506,22 +472,9 @@ class Cubes(ObjectGeometry):
 
     Generates random cube label masks with set volume fraction. Each cube is a regular
     cube placed at a random position in the volume with a random orientation and a
-    random circumradius drawn uniformly from ``diameter_range``. Volume fraction and
-    diameters are randomly chosen from a uniform distribution with set boundaries.
-    Optionally, instead of using volume fraction, the number of cubes can be set
-    directly.
-
-    Attributes:
-        shape: Matrix size of the cube label map ``(X, Y, Z)``.
-        fov: Field of view in mm, used to compute voxel size.
-        num_objects: Fixed number of cubes to generate. Mutually exclusive with
-            `vf_range`.
-        vf_range: Range of target volume fractions. Cubes are added until the
-            volume fraction is reached. Mutually exclusive with `num_objects`.
-        diameter_range: Range of cube circumdiameters in mm.
-        allow_overlap: If False, cubes are only added if they contribute new voxels.
-        device: Target compute device, e.g. 'cuda' or 'cpu'.
-        seed: Random seed for reproducibility.
+    random circumradius drawn uniformly from ``diameter_range``. Follows the same
+    interface as :class:`Cylinders`; see that class for a full description of the
+    shared parameters.
 
     Notes:
         The ``diameter_range`` is interpreted as the circumdiameter (diameter of the
@@ -551,16 +504,7 @@ class Cubes(ObjectGeometry):
             cube.
         """
         # Random center inside volume
-        center = torch.stack(
-            [
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[0] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[1] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[2] - 1),
-            ]
-        )
+        center = self._random_point()
 
         # Random circumradius
         radius = (
@@ -569,11 +513,8 @@ class Cubes(ObjectGeometry):
             + self.radius_range[0]
         )
 
-        # Random rotation via QR decomposition of a random normal matrix
-        rand_mat = torch.randn(3, 3, device=self.device, generator=self.generator)
-        Q, _ = torch.linalg.qr(rand_mat)
-        if torch.det(Q) < 0:
-            Q = -Q
+        # Random rotation
+        Q = self._random_rotation()
 
         # Circumradius of a unit cube (half-edge = 1) is √3, so half-edge = r/√3
         half_edge = radius / (3.0**0.5)
@@ -615,20 +556,15 @@ class Toroids(ObjectGeometry):
     distance from the torus center to the tube center) is drawn uniformly from
     ``diameter_range`` after converting from mm to voxels. The tube radius (r) is set
     as a fraction of the major radius sampled uniformly from ``tube_ratio_range``.
+    Follows the same interface as :class:`Cylinders`; see that class for a full
+    description of the shared parameters.
 
-    Attributes:
-        shape: Matrix size of the toroid label map ``(X, Y, Z)``.
-        fov: Field of view in mm, used to compute voxel size.
-        num_objects: Fixed number of toroids to generate. Mutually exclusive with
-            ``vf_range``.
-        vf_range: Range of target volume fractions. Toroids are added until the volume
-            fraction is reached. Mutually exclusive with ``num_objects``.
-        diameter_range: Range of major diameters (2*R) in mm.
+    Args:
         tube_ratio_range: Range of r/R, where r is the tube radius. Must be in (0, 1)
             for a non-self-intersecting ring torus.
-        allow_overlap: If False, toroids are only added if they contribute new voxels.
-        device: Target compute device, e.g. 'cuda' or 'cpu'.
-        seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `tube_ratio_range` contains a value outside ``(0, 1)``.
 
     Examples:
         Create 100 random toroid label maps and save to disk:
@@ -663,6 +599,10 @@ class Toroids(ObjectGeometry):
             device,
             seed,
         )
+        if not all(0 < v < 1 for v in tube_ratio_range):
+            raise ValueError(
+                f"tube_ratio_range must lie within (0, 1), got {tube_ratio_range}."
+            )
         self.tube_ratio_range = tube_ratio_range
 
     @property
@@ -687,16 +627,7 @@ class Toroids(ObjectGeometry):
             torus.
         """
         # Random center inside volume
-        center = torch.stack(
-            [
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[0] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[1] - 1),
-                torch.rand((), device=self.device, generator=self.generator)
-                * (self.shape[2] - 1),
-            ]
-        )
+        center = self._random_point()
 
         # Random major radius R (distance from torus center to tube center)
         major_radius = (
@@ -713,11 +644,8 @@ class Toroids(ObjectGeometry):
         )
         tube_radius = tube_ratio * major_radius
 
-        # Random rotation via QR decomposition of a random normal matrix
-        rand_mat = torch.randn(3, 3, device=self.device, generator=self.generator)
-        Q, _ = torch.linalg.qr(rand_mat)
-        if torch.det(Q) < 0:
-            Q = -Q
+        # Random rotation
+        Q = self._random_rotation()
 
         # Transform voxel coords into torus local frame; symmetry axis is local z
         pts_local = (self.voxel_grid - center) @ Q  # (X, Y, Z, 3)

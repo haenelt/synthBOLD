@@ -6,6 +6,7 @@ import torch
 
 from synthbold.base import Transform
 from synthbold.config import Config
+from synthbold.sampling import sample_uniform
 from synthbold.transforms.functional import sample_fractal_noise
 
 __all__ = [
@@ -47,8 +48,12 @@ class GaussianNoise(Transform):
         """Computes gaussian noise for the given output shape ``(B, X, Y, Z)``."""
         B, _, _, _ = shape
 
-        mu = self._choose_mu(B).view(B, 1, 1, 1)
-        std = self._choose_std(B).view(B, 1, 1, 1)
+        mu = sample_uniform(
+            B, self.mu_range[0], self.mu_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
+        std = sample_uniform(
+            B, self.std_range[0], self.std_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
 
         noise = torch.randn(shape, device=self.device, generator=self.generator)
         return noise * std + mu
@@ -68,7 +73,12 @@ class GaussianNoise(Transform):
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        """Constructs GaussianNoise instance from a config object."""
+        """Constructs GaussianNoise instance from a config object.
+
+        Raises:
+            ValueError: If `config.transform.gnoise_mu` or
+                `config.transform.gnoise_std` is not set in the config.
+        """
         if config.transform.gnoise_mu is None or config.transform.gnoise_std is None:
             raise ValueError("Gaussian noise parameters are not set in the config.")
         mu_range = (
@@ -84,18 +94,6 @@ class GaussianNoise(Transform):
             std_range=std_range,
             device=config.device,
             seed=config.seed,
-        )
-
-    def _choose_mu(self, n_vol: int) -> torch.Tensor:
-        """Randomly select mu within the range."""
-        return torch.empty(n_vol, device=self.device).uniform_(
-            self.mu_range[0], self.mu_range[1], generator=self.generator
-        )
-
-    def _choose_std(self, n_vol: int) -> torch.Tensor:
-        """Randomly select std within the range."""
-        return torch.empty(n_vol, device=self.device).uniform_(
-            self.std_range[0], self.std_range[1], generator=self.generator
         )
 
 
@@ -118,6 +116,9 @@ class KSpaceSpikeNoise(Transform):
             of the maximum k-space magnitude.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `num_spikes_range` does not satisfy ``0 <= min <= max``.
     """
 
     def __init__(
@@ -168,7 +169,14 @@ class KSpaceSpikeNoise(Transform):
         )
         locations = torch.stack((x, y, z), dim=-1).to(torch.float32)
 
-        intensity = self._choose_intensity((B, num_spikes))
+        # Randomly select spike intensity multipliers
+        intensity = sample_uniform(
+            (B, num_spikes),
+            self.intensity_range[0],
+            self.intensity_range[1],
+            self.device,
+            self.generator,
+        )
         return torch.cat((locations, intensity.unsqueeze(-1)), dim=-1)
 
     @staticmethod
@@ -217,12 +225,6 @@ class KSpaceSpikeNoise(Transform):
             seed=config.seed,
         )
 
-    def _choose_intensity(self, shape: tuple[int, int]) -> torch.Tensor:
-        """Randomly select spike intensity multipliers within the range."""
-        return torch.empty(shape, device=self.device).uniform_(
-            self.intensity_range[0], self.intensity_range[1], generator=self.generator
-        )
-
 
 class MultiplicativeGammaNoise(Transform):
     """Applies multiplicative gamma noise to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)``
@@ -241,7 +243,10 @@ class MultiplicativeGammaNoise(Transform):
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
 
-    Note:
+    Raises:
+        ValueError: If `shape_range` is not strictly positive.
+
+    Notes:
         The gamma samples drawn in `apply` rely on the global PyTorch RNG state and
         are not controlled by `seed`. Only the sampled `shape` values are reproducible.
     """
@@ -262,7 +267,9 @@ class MultiplicativeGammaNoise(Transform):
         given output shape ``(B, X, Y, Z)``."""
         B, _, _, _ = shape
 
-        concentration = self._choose_shape(B)
+        concentration = sample_uniform(
+            B, self.shape_range[0], self.shape_range[1], self.device, self.generator
+        )
         return concentration.view(B, 1, 1, 1)
 
     @staticmethod
@@ -294,12 +301,6 @@ class MultiplicativeGammaNoise(Transform):
             seed=config.seed,
         )
 
-    def _choose_shape(self, n_vol: int) -> torch.Tensor:
-        """Randomly select the gamma shape parameter within the range."""
-        return torch.empty(n_vol, device=self.device).uniform_(
-            self.shape_range[0], self.shape_range[1], generator=self.generator
-        )
-
 
 class NoncentralChiNoise(Transform):
     """Applies noncentral chi noise to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)`` tensors.
@@ -320,6 +321,9 @@ class NoncentralChiNoise(Transform):
             channels. Must be at least 2.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `dof` is less than 2.
     """
 
     def __init__(
@@ -340,7 +344,9 @@ class NoncentralChiNoise(Transform):
         shape ``(B, X, Y, Z)``, stacked along a new leading dimension."""
         B, _, _, _ = shape
 
-        std = self._choose_std(B).view(B, 1, 1, 1)
+        std = sample_uniform(
+            B, self.std_range[0], self.std_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
         noise = torch.randn(
             (self.dof, *shape), device=self.device, generator=self.generator
         )
@@ -374,12 +380,6 @@ class NoncentralChiNoise(Transform):
             seed=config.seed,
         )
 
-    def _choose_std(self, n_vol: int) -> torch.Tensor:
-        """Randomly select std within the range."""
-        return torch.empty(n_vol, device=self.device).uniform_(
-            self.std_range[0], self.std_range[1], generator=self.generator
-        )
-
 
 class PerlinNoise(Transform):
     """Applies additive Perlin-like fractal noise to 3D ``(X, Y, Z)`` or 4D
@@ -401,6 +401,10 @@ class PerlinNoise(Transform):
         amplitude_range: Minimum and maximum scaling factor for the noise field.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If any `base_shape` dimension is less than 1, if `octaves` is
+            less than 1, or if `persistence` is not within `(0, 1]`.
     """
 
     def __init__(
@@ -413,10 +417,13 @@ class PerlinNoise(Transform):
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
+        if any(d < 1 for d in base_shape):
+            raise ValueError(f"base_shape dimensions must be >= 1, got {base_shape}.")
         if octaves < 1:
             raise ValueError("octaves must be at least 1.")
         if not 0.0 < persistence <= 1.0:
             raise ValueError("persistence must be in (0, 1].")
+
         self.base_shape = base_shape
         self.octaves = octaves
         self.persistence = persistence
@@ -427,7 +434,13 @@ class PerlinNoise(Transform):
         ``(B, X, Y, Z)``."""
         B, X, Y, Z = shape
 
-        amplitude = self._choose_amplitude(B).view(B, 1, 1, 1)
+        amplitude = sample_uniform(
+            B,
+            self.amplitude_range[0],
+            self.amplitude_range[1],
+            self.device,
+            self.generator,
+        ).view(B, 1, 1, 1)
         noise = sample_fractal_noise(
             B,
             self.base_shape,
@@ -468,12 +481,6 @@ class PerlinNoise(Transform):
             seed=config.seed,
         )
 
-    def _choose_amplitude(self, n_vol: int) -> torch.Tensor:
-        """Randomly select the amplitude scaling factor within the range."""
-        return torch.empty(n_vol, device=self.device).uniform_(
-            self.amplitude_range[0], self.amplitude_range[1], generator=self.generator
-        )
-
 
 class PoissonNoise(Transform):
     """Applies signal-dependent Poisson noise to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)``
@@ -490,7 +497,10 @@ class PoissonNoise(Transform):
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
 
-    Note:
+    Raises:
+        ValueError: If `peak_range` is not strictly positive.
+
+    Notes:
         The Poisson counts drawn in `apply` rely on the global PyTorch RNG state and are
         not controlled by `seed`. Only the sampled `peak` values are reproducible.
     """
@@ -502,6 +512,8 @@ class PoissonNoise(Transform):
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
+        if peak_range[0] <= 0:
+            raise ValueError(f"peak_range must be strictly positive, got {peak_range}.")
         self.peak_range = peak_range
 
     def sample(self, shape: tuple[int, ...]) -> torch.Tensor:
@@ -509,10 +521,10 @@ class PoissonNoise(Transform):
         ``(B, X, Y, Z)``."""
         B, _, _, _ = shape
 
-        peak = torch.empty(B, device=self.device).uniform_(
-            self.peak_range[0], self.peak_range[1], generator=self.generator
-        )
-        return peak.view(B, 1, 1, 1)
+        peak = sample_uniform(
+            B, self.peak_range[0], self.peak_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
+        return peak
 
     @staticmethod
     def apply(data: torch.Tensor, peak: torch.Tensor) -> torch.Tensor:
@@ -572,7 +584,9 @@ class RicianNoise(Transform):
         output shape ``(B, X, Y, Z)``, stacked along a new leading dimension."""
         B, _, _, _ = shape
 
-        std = self._choose_std(B).view(B, 1, 1, 1)
+        std = sample_uniform(
+            B, self.std_range[0], self.std_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
         noise = torch.randn((2, *shape), device=self.device, generator=self.generator)
         return noise * std
 
@@ -601,12 +615,6 @@ class RicianNoise(Transform):
             std_range=std_range,
             device=config.device,
             seed=config.seed,
-        )
-
-    def _choose_std(self, n_vol: int) -> torch.Tensor:
-        """Randomly select std within the range."""
-        return torch.empty(n_vol, device=self.device).uniform_(
-            self.std_range[0], self.std_range[1], generator=self.generator
         )
 
 
@@ -640,7 +648,9 @@ class SpeckleNoise(Transform):
         ``(B, X, Y, Z)``."""
         B, _, _, _ = shape
 
-        std = self._choose_std(B).view(B, 1, 1, 1)
+        std = sample_uniform(
+            B, self.std_range[0], self.std_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
         noise = torch.randn(shape, device=self.device, generator=self.generator)
         return noise * std
 
@@ -668,10 +678,4 @@ class SpeckleNoise(Transform):
             std_range=std_range,
             device=config.device,
             seed=config.seed,
-        )
-
-    def _choose_std(self, n_vol: int) -> torch.Tensor:
-        """Randomly select std within the range."""
-        return torch.empty(n_vol, device=self.device).uniform_(
-            self.std_range[0], self.std_range[1], generator=self.generator
         )

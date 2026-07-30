@@ -1,6 +1,8 @@
 """Tests for utility functions."""
 
+import importlib.metadata
 from pathlib import Path
+from unittest.mock import patch
 
 import nibabel as nb
 import numpy as np
@@ -9,7 +11,15 @@ import torch
 import zarr
 from nibabel.freesurfer.io import read_geometry
 
-from synthbold.io import load_nifti, load_zarr, save_mesh, save_nifti, save_zarr
+from synthbold.io import (
+    load_nifti,
+    load_zarr,
+    save_batch,
+    save_mesh,
+    save_nifti,
+    save_zarr,
+    zarr_attributes,
+)
 
 SMALL_SHAPE = (4, 4, 4)
 
@@ -205,7 +215,71 @@ def test_load_zarr_group_with_multiple_arrays_raises(tmp_path: Path) -> None:
         load_zarr(fname)
 
 
-# --- save_mesh ---
+# --- save_batch ---
+
+
+def test_save_batch_raises_for_invalid_fmt(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="fmt must be"):
+        save_batch({"image": np.zeros(SMALL_SHAPE)}, tmp_path, "npy")
+
+
+def test_save_batch_writes_one_zarr_file_per_field(tmp_path: Path) -> None:
+    fields = {
+        "image": np.zeros((1, 2, 2, 2), dtype=np.float32),
+        "mask": np.ones((1, 2, 2, 2), dtype=np.float32),
+    }
+    save_batch(fields, tmp_path, "zarr")
+    for name, arr in fields.items():
+        data, _ = load_zarr(tmp_path / f"{name}.zarr")
+        assert np.array_equal(data, arr)
+
+
+def test_save_batch_passes_attrs_to_zarr(tmp_path: Path) -> None:
+    fields = {"image": np.zeros((1, 2, 2, 2), dtype=np.float32)}
+    save_batch(fields, tmp_path, "zarr", attrs={"foo": "bar"})
+    _, attrs = load_zarr(tmp_path / "image.zarr")
+    assert attrs == {"foo": "bar"}
+
+
+def test_save_batch_zarr_defaults_to_empty_attrs(tmp_path: Path) -> None:
+    fields = {"image": np.zeros((1, 2, 2, 2), dtype=np.float32)}
+    save_batch(fields, tmp_path, "zarr")
+    _, attrs = load_zarr(tmp_path / "image.zarr")
+    assert attrs == {}
+
+
+def test_save_batch_writes_one_nifti_file_per_field(tmp_path: Path) -> None:
+    fields = {
+        "image": np.zeros((1, 2, 2, 2), dtype=np.float32),
+        "mask": np.ones((1, 2, 2, 2), dtype=np.float32),
+    }
+    save_batch(fields, tmp_path, "nii")
+    for name in fields:
+        assert (tmp_path / f"{name}.nii").exists()
+
+
+def test_save_batch_nifti_permutes_first_axis_to_last(tmp_path: Path) -> None:
+    arr = np.arange(1 * 2 * 3 * 4).reshape(1, 2, 3, 4).astype(np.float32)
+    save_batch({"image": arr}, tmp_path, "nii")
+    data, _, _ = load_nifti(tmp_path / "image.nii")
+    assert data.shape == (2, 3, 4, 1)
+    assert np.array_equal(data, np.moveaxis(arr, 0, -1))
+
+
+def test_save_batch_nifti_ignores_attrs(tmp_path: Path) -> None:
+    arr = np.zeros((1, 2, 2, 2), dtype=np.float32)
+    save_batch({"image": arr}, tmp_path, "nii", attrs={"foo": "bar"})
+    assert (tmp_path / "image.nii").exists()
+
+
+def test_save_batch_applies_suffix(tmp_path: Path) -> None:
+    fields = {"image": np.zeros((1, 2, 2, 2), dtype=np.float32)}
+    save_batch(fields, tmp_path, "zarr", suffix="_distractor")
+    assert (tmp_path / "image_distractor.zarr").exists()
+    assert not (tmp_path / "image.zarr").exists()
+
+
+# --- save_batch ---
 
 
 def test_save_mesh_writes_file(tmp_path: Path) -> None:
@@ -250,3 +324,30 @@ def test_save_mesh_creates_missing_parent_directories(tmp_path: Path) -> None:
     fname = tmp_path / "nested" / "dir" / "mesh"
     save_mesh(fname, data)
     assert fname.exists()
+
+
+# --- zarr_attributes ---
+
+
+def test_zarr_attributes_values() -> None:
+    attrs = zarr_attributes("DummyModel", torch.device("cpu"), 42)
+    assert attrs["generator"] == "DummyModel"
+    assert attrs["device"] == "cpu"
+    assert attrs["seed"] == 42
+    assert attrs["axis_order"] == ("N", "X", "Y", "Z")
+    assert "created_at" in attrs
+    assert "version" in attrs
+
+
+def test_zarr_attributes_seed_none_passes_through() -> None:
+    attrs = zarr_attributes("DummyModel", torch.device("cpu"), None)
+    assert attrs["seed"] is None
+
+
+def test_zarr_attributes_version_falls_back_when_package_not_found() -> None:
+    with patch(
+        "synthbold.io.importlib.metadata.version",
+        side_effect=importlib.metadata.PackageNotFoundError,
+    ):
+        attrs = zarr_attributes("DummyModel", torch.device("cpu"), 0)
+    assert attrs["version"] == "unknown"

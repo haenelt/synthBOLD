@@ -1,12 +1,13 @@
 """Generation of foreground data."""
 
-from typing import Self
+from typing import Any, Self
 
 import torch
 
-from synthbold.base import Model, Pipeline, Transform
+from synthbold.base import Model, Transform
 from synthbold.config import Config
 from synthbold.transforms import CaliberDeformation, ElasticDeformation, RandomFlip
+from synthbold.transforms.functional import Pipeline
 
 __all__ = ["ForegroundModel", "DistractorModel"]
 
@@ -26,6 +27,8 @@ class ForegroundModel(Model):
 
     Args:
         transforms: List of transformations to apply, in order.
+        transform_prob: Probability of applying each transform, evaluated independently
+            per transform and per batch element.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
 
@@ -43,19 +46,23 @@ class ForegroundModel(Model):
     def __init__(
         self,
         transforms: list[Transform] | None = None,
+        transform_prob: float = 1.0,
         device: str = "cpu",
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
-        self.pipeline = Pipeline(transforms or [])
+        self.pipeline = Pipeline(
+            transforms or [], prob=transform_prob, device=device, seed=seed
+        )
 
-    def forward(self, data: torch.Tensor) -> torch.Tensor:
+    def forward(self, data: torch.Tensor, **kwargs: Any) -> torch.Tensor:
         """Generate random vessel map.
 
         Args:
             data: Integer-labeled 4D tensor of shape ``(B, X, Y, Z)`` representing
-                vessels as binary long straight cylinders. Must contain labels greater
-                than or equal to 1.
+                vessels as binary long straight cylinders. Label `0` is treated as
+                background, if present.
+            **kwargs: Unused; accepted for interface compatibility with `Model`.
 
         Returns:
             Synthesized tensor of the same shape as the input tensor.
@@ -74,6 +81,7 @@ class ForegroundModel(Model):
         ]
         return cls(
             transforms=transforms,
+            transform_prob=config.transform_prob,
             device=config.device,
             seed=config.seed,
         )
@@ -94,6 +102,8 @@ class DistractorModel(ForegroundModel):
 
     Args:
         transforms: List of transformations to apply, in order.
+        transform_prob: Probability of applying each transform, evaluated
+            independently per transform and per batch element.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
 
@@ -115,6 +125,7 @@ class DistractorModel(ForegroundModel):
         transforms: list[Transform] = [RandomFlip.from_config(config)]
         return cls(
             transforms=transforms,
+            transform_prob=config.transform_prob,
             device=config.device,
             seed=config.seed,
         )

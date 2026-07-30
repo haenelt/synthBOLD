@@ -3,7 +3,17 @@
 import torch
 import torch.nn.functional as F
 
-__all__ = ["apply_deformation", "sample_fractal_noise", "sample_lowres_noise"]
+from synthbold.base import RandomGeneratorMixin, Transform
+
+__all__ = [
+    "Pipeline",
+    "apply_deformation",
+    "sample_fractal_noise",
+    "sample_lowres_noise",
+    "zscore",
+    "psc",
+    "percentile_scale",
+]
 
 
 def sample_lowres_noise(
@@ -144,3 +154,152 @@ def apply_deformation(
         data_warped = data_warped.round().to(data_orig_dtype)
 
     return data_warped
+
+
+class Pipeline(RandomGeneratorMixin):
+    """Compose multiple tensor-to-tensor transforms in sequence.
+
+    This class chains multiple `Transform` instances together. When called, it passes
+    the input tensor through each transform in the order they were provided. Each
+    transform is independently and randomly skipped according to `prob`, evaluated
+    per batch element.
+
+    Args:
+        transforms: A list of `Transform` instances.
+        prob: Probability of applying each transform. Evaluated independently per
+            transform and per batch element.
+        device: Target compute device ("cuda" or "cpu").
+        seed: Random seed for reproducibility.
+    """
+
+    def __init__(
+        self,
+        transforms: list[Transform],
+        prob: float = 0.5,
+        device: str = "cpu",
+        seed: int | None = None,
+    ) -> None:
+        super().__init__(seed=seed, device=device)
+        self.prob = prob
+        self.transforms = transforms
+
+    def __call__(self, data: torch.Tensor) -> torch.Tensor:
+        """Apply pipeline to input tensor.
+
+        Args:
+            data: Input tensor of shape ``(B, X, Y, Z)``.
+
+        Returns:
+            Tensor produced by sequentially applying each transform, with each
+            transform randomly skipped according to `self.prob`.
+        """
+        B = data.shape[0]
+
+        for t in self.transforms:
+            should_apply = (
+                torch.rand(B, generator=self.generator, device=self.device) < self.prob
+            )
+            if not should_apply.any():
+                continue
+
+            # Transforms operate on the whole batch at once, so apply to everyone and
+            # then discard the result for batch elements not selected by `should_apply`.
+            result = t(data)
+            mask = should_apply.view(B, 1, 1, 1)
+            data = torch.where(mask, result, data)
+
+        return data
+
+
+def zscore(
+    data: torch.Tensor,
+    center: bool = True,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Normalizes each batch element to zero mean and unit variance.
+
+    Mean and standard deviation are computed per batch element over all non-batch
+    dimensions, so normalization is independent across the batch.
+
+    Args:
+        data: Input tensor of shape ``(B, ...)``.
+        center: Whether to subtract the mean. Set to False for quantities derived
+            from squared units (e.g. a variance), which should be rescaled but not
+            mean-centered.
+        eps: Relative floor, as a fraction of each batch element's peak absolute
+            value, added to `std` to avoid division by zero. Expressed relative to
+            `data` rather than as an absolute constant so the floor stays negligible
+            regardless of the physical scale/units of `data`.
+
+    Returns:
+        Tensor of the same shape as `data`, normalized.
+    """
+    dims = tuple(range(1, data.ndim))
+    mean = data.mean(dim=dims, keepdim=True)
+    std = data.std(dim=dims, keepdim=True, unbiased=False)
+    floor = eps * data.detach().abs().amax(dim=dims, keepdim=True)
+    scale = std + floor
+    if not center:
+        return data / scale
+    return (data - mean) / scale
+
+
+def psc(data: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Converts each batch element to percent signal change relative to its mean.
+
+    Mean is computed per batch element over all non-batch dimensions, so the
+    conversion is independent across the batch.
+
+    Args:
+        data: Input tensor of shape ``(B, ...)``.
+        eps: Relative floor, as a fraction of each batch element's peak absolute
+            value, added to the mean to avoid division by zero. Expressed relative
+            to `data` rather than as an absolute constant so the floor stays
+            negligible regardless of the physical scale/units of `data`.
+
+    Returns:
+        Tensor of the same shape as `data`, expressed as percent deviation from
+        each batch element's mean.
+    """
+    dims = tuple(range(1, data.ndim))
+    mean = data.mean(dim=dims, keepdim=True)
+    floor = eps * data.detach().abs().amax(dim=dims, keepdim=True)
+    return 100 * (data - mean) / (mean + floor)
+
+
+def percentile_scale(
+    data: torch.Tensor,
+    lower: float = 0.01,
+    upper: float = 0.99,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Rescales each batch element to ``[0, 1]`` using percentile clipping.
+
+    Per batch element, values are linearly rescaled so that the `lower` and `upper`
+    quantiles map to 0 and 1 respectively, then clamped to ``[0, 1]``. This is more
+    robust to outliers than min-max scaling since it doesn't rely on the tensor's
+    extreme values.
+
+    Args:
+        data: Input tensor of shape ``(B, ...)``.
+        lower: Lower quantile, in ``[0, 1]``, mapped to 0.
+        upper: Upper quantile, in ``[0, 1]``, mapped to 1.
+        eps: Relative floor, as a fraction of each batch element's peak absolute
+            value, added to the denominator to avoid division by zero. Expressed
+            relative to `data` rather than as an absolute constant so the floor
+            stays negligible regardless of the physical scale/units of `data`.
+
+    Returns:
+        Tensor of the same shape as `data`, rescaled and clamped to ``[0, 1]``.
+    """
+    B = data.shape[0]
+    data_flat = data.view(B, -1)
+
+    q_low = torch.quantile(data_flat, lower, dim=1, keepdim=True)
+    q_high = torch.quantile(data_flat, upper, dim=1, keepdim=True)
+    floor = eps * data_flat.detach().abs().amax(dim=1, keepdim=True)
+
+    data_flat = (data_flat - q_low) / (q_high - q_low + floor)
+    data_flat = data_flat.clamp(0.0, 1.0)
+
+    return data_flat.view_as(data)

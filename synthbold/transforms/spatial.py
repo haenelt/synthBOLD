@@ -7,6 +7,7 @@ import torch.nn.functional as F
 
 from synthbold.base import Transform
 from synthbold.config import Config
+from synthbold.sampling import sample_uniform
 from synthbold.transforms.functional import sample_lowres_noise
 
 __all__ = [
@@ -61,7 +62,11 @@ class RandomFlip(Transform):
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        """Constructs RandomFlip instance from a config object."""
+        """Constructs RandomFlip instance from a config object.
+
+        Raises:
+            ValueError: If `config.transform.flip_prob` is not set in the config.
+        """
         if config.transform.flip_prob is None:
             raise ValueError("Flip parameters are not set in the config.")
         return cls(
@@ -87,6 +92,10 @@ class GaussianSmoothing(Transform):
         isotropic: If True, spatially isotropic smoothing will be applied.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `sigma_range` is not strictly positive, if its minimum exceeds
+            its maximum, or if `kernel_size` is even.
     """
 
     def __init__(
@@ -98,6 +107,15 @@ class GaussianSmoothing(Transform):
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
+        if sigma_range[0] <= 0 or sigma_range[1] <= 0:
+            raise ValueError(
+                f"sigma_range must be strictly positive, got {sigma_range}."
+            )
+        if sigma_range[0] > sigma_range[1]:
+            raise ValueError(
+                f"Minimum must not be greater than maximum sigma, got {sigma_range}."
+            )
+
         self.sigma_range = sigma_range
         self.kernel_size = kernel_size
         self.isotropic = isotropic
@@ -111,12 +129,20 @@ class GaussianSmoothing(Transform):
         k = self.kernel_size
 
         if self.isotropic:
-            sigma = self._choose_sigma(B)
+            sigma = sample_uniform(
+                B, self.sigma_range[0], self.sigma_range[1], self.device, self.generator
+            )
             sx, sy, sz = sigma, sigma, sigma
         else:
-            sx = self._choose_sigma(B)
-            sy = self._choose_sigma(B)
-            sz = self._choose_sigma(B)
+            sx = sample_uniform(
+                B, self.sigma_range[0], self.sigma_range[1], self.device, self.generator
+            )
+            sy = sample_uniform(
+                B, self.sigma_range[0], self.sigma_range[1], self.device, self.generator
+            )
+            sz = sample_uniform(
+                B, self.sigma_range[0], self.sigma_range[1], self.device, self.generator
+            )
 
         # Create grid centered at 0
         x = torch.arange(k, device=self.device).float() - (k - 1) / 2
@@ -173,7 +199,11 @@ class GaussianSmoothing(Transform):
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        """Constructs SpatialSmoothing instance from a config object."""
+        """Constructs SpatialSmoothing instance from a config object.
+
+        Raises:
+            ValueError: If `config.transform.gsmooth_sigma` is not set in the config.
+        """
         if config.transform.gsmooth_sigma is None:
             raise ValueError("Spatial smoothing parameters are not set in the config.")
         sigma_range = (
@@ -186,21 +216,6 @@ class GaussianSmoothing(Transform):
             isotropic=config.transform.gsmooth_isotropic,
             device=config.device,
             seed=config.seed,
-        )
-
-    def _choose_sigma(self, b: int) -> torch.Tensor:
-        """Randomly select sigmas within the range."""
-        min_sigma, max_sigma = self.sigma_range
-        # make sure both sigmas are positive
-        if min_sigma <= 0 or max_sigma <= 0:
-            raise ValueError(f"sigmas must be positive, got {self.sigma_range}.")
-        if min_sigma > max_sigma:
-            raise ValueError(
-                f"Mininimum must be smaller than maximum sigma, got {self.sigma_range}."
-            )
-
-        return torch.empty(b, device=self.device).uniform_(
-            min_sigma, max_sigma, generator=self.generator
         )
 
 
@@ -223,6 +238,10 @@ class GaussianSharpening(Transform):
         kernel_size: Isotropic kernel size (must be odd).
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `sigma_range` is not strictly positive, if its minimum exceeds
+            its maximum, if `amount_range` is negative, or if `kernel_size` is even.
     """
 
     def __init__(
@@ -234,6 +253,17 @@ class GaussianSharpening(Transform):
         seed: int | None = None,
     ) -> None:
         super().__init__(device=device, seed=seed)
+        if sigma_range[0] <= 0 or sigma_range[1] <= 0:
+            raise ValueError(
+                f"sigma_range must be strictly positive, got {sigma_range}."
+            )
+        if sigma_range[0] > sigma_range[1]:
+            raise ValueError(
+                f"Minimum must not be greater than maximum sigma, got {sigma_range}."
+            )
+        if amount_range[0] < 0 or amount_range[1] < 0:
+            raise ValueError(f"amount_range must be non-negative, got {amount_range}.")
+
         self.sigma_range = sigma_range
         self.amount_range = amount_range
         self.kernel_size = kernel_size
@@ -246,8 +276,12 @@ class GaussianSharpening(Transform):
         B, _, _, _ = shape
         k = self.kernel_size
 
-        sigma = self._choose_sigma(B).view(B, 1, 1, 1)
-        amount = self._choose_amount(B).view(B, 1, 1, 1)
+        sigma = sample_uniform(
+            B, self.sigma_range[0], self.sigma_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
+        amount = sample_uniform(
+            B, self.amount_range[0], self.amount_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
 
         # Create grid centered at 0: (1, k, k, k)
         coord = torch.arange(k, device=self.device).float() - (k - 1) / 2
@@ -292,7 +326,12 @@ class GaussianSharpening(Transform):
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        """Constructs GaussianSharpening instance from a config object."""
+        """Constructs GaussianSharpening instance from a config object.
+
+        Raises:
+            ValueError: If `config.transform.sharpen_sigma` or
+                `config.transform.sharpen_amount` is not set in the config.
+        """
         if (
             config.transform.sharpen_sigma is None
             or config.transform.sharpen_amount is None
@@ -316,28 +355,6 @@ class GaussianSharpening(Transform):
             seed=config.seed,
         )
 
-    def _choose_sigma(self, b: int) -> torch.Tensor:
-        """Randomly select sigma within the range."""
-        min_sigma, max_sigma = self.sigma_range
-        if min_sigma <= 0 or max_sigma <= 0:
-            raise ValueError(f"sigmas must be positive, got {self.sigma_range}.")
-        if min_sigma > max_sigma:
-            raise ValueError(
-                f"Mininimum must be smaller than maximum sigma, got {self.sigma_range}."
-            )
-        return torch.empty(b, device=self.device).uniform_(
-            min_sigma, max_sigma, generator=self.generator
-        )
-
-    def _choose_amount(self, b: int) -> torch.Tensor:
-        """Randomly select sharpening amount within the range."""
-        min_amount, max_amount = self.amount_range
-        if min_amount < 0 or max_amount < 0:
-            raise ValueError(f"amount must be non-negative, got {self.amount_range}.")
-        return torch.empty(b, device=self.device).uniform_(
-            min_amount, max_amount, generator=self.generator
-        )
-
 
 class GibbsRinging(Transform):
     """Applies Gibbs ringing artifacts to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)``
@@ -357,6 +374,10 @@ class GibbsRinging(Transform):
             `(0, 1]`.
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If `cutoff_range` is not within `(0, 1]`, or if its minimum
+            exceeds its maximum.
     """
 
     def __init__(
@@ -372,13 +393,18 @@ class GibbsRinging(Transform):
             raise ValueError(
                 f"Minimum must not be greater than maximum cutoff, got {cutoff_range}."
             )
+
         self.cutoff_range = cutoff_range
 
     def sample(self, shape: tuple[int, ...]) -> torch.Tensor:
         """Computes the per-volume k-space cutoff radius for the given output shape
         ``(B, X, Y, Z)``."""
         B, _, _, _ = shape
-        return self._choose_cutoff(B).view(B, 1, 1, 1)
+
+        cutoff = sample_uniform(
+            B, self.cutoff_range[0], self.cutoff_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
+        return cutoff
 
     @staticmethod
     def apply(data: torch.Tensor, cutoff: torch.Tensor) -> torch.Tensor:
@@ -419,12 +445,6 @@ class GibbsRinging(Transform):
             seed=config.seed,
         )
 
-    def _choose_cutoff(self, n_vol: int) -> torch.Tensor:
-        """Randomly select cutoff radius within the range."""
-        return torch.empty(n_vol, device=self.device).uniform_(
-            self.cutoff_range[0], self.cutoff_range[1], generator=self.generator
-        )
-
 
 class SphericalMask(Transform):
     """Generates a spherical background mask and applies it to 3D or 4D tensors.
@@ -440,6 +460,9 @@ class SphericalMask(Transform):
             not selected are returned unmasked (mask is all ``True``).
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If the minimum of `radius_range` exceeds the maximum.
     """
 
     def __init__(
@@ -454,6 +477,7 @@ class SphericalMask(Transform):
             raise ValueError(
                 f"Minimum must not be greater than maximum radius, got {radius_range}."
             )
+
         self.radius_range = radius_range
         self.sphere_prob = sphere_prob
 
@@ -474,8 +498,8 @@ class SphericalMask(Transform):
 
         # Sample random radii: (B, 1, 1, 1)
         r_min, r_max = self.radius_range
-        radii = torch.empty((B, 1, 1, 1), device=self.device).uniform_(
-            r_min, r_max, generator=self.generator
+        radii = sample_uniform(B, r_min, r_max, self.device, self.generator).view(
+            B, 1, 1, 1
         )
 
         # Sample random centers: (B, 3)
@@ -532,7 +556,11 @@ class SphericalMask(Transform):
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        """Constructs SphericalMask instance from a config object."""
+        """Constructs SphericalMask instance from a config object.
+
+        Raises:
+            ValueError: If `config.transform.sphere_radius` is not set in the config.
+        """
         if config.transform.sphere_radius is None:
             raise ValueError("Spherical mask parameters are not set in the config.")
         radius_range = (
@@ -570,6 +598,11 @@ class DeformedSphericalMask(SphericalMask):
             selected are returned unmasked (mask is all ``True``).
         device: Target compute device ("cuda" or "cpu").
         seed: Random seed for reproducibility.
+
+    Raises:
+        ValueError: If the minimum of `radius_range` exceeds the maximum, if
+            `deform_amplitude` is negative, or if any `deform_shape` dimension is
+            less than 1.
     """
 
     def __init__(
@@ -582,13 +615,17 @@ class DeformedSphericalMask(SphericalMask):
         seed: int | None = None,
     ) -> None:
         super().__init__(radius_range, sphere_prob, device=device, seed=seed)
+        if deform_amplitude < 0:
+            raise ValueError(
+                f"deform_amplitude must be non-negative, got {deform_amplitude}."
+            )
+        if any(d < 1 for d in deform_shape):
+            raise ValueError(
+                f"deform_shape dimensions must be >= 1, got {deform_shape}."
+            )
+
         self.deform_amplitude = deform_amplitude
         self.deform_shape = deform_shape
-
-        if self.deform_amplitude < 0:
-            raise ValueError(
-                f"deform_amplitude must be non-negative, got {self.deform_amplitude}."
-            )
 
     def sample(self, shape: tuple[int, ...]) -> torch.Tensor:
         """Compute the deformed background mask data of shape ``(B, X, Y, Z)``."""
@@ -610,7 +647,11 @@ class DeformedSphericalMask(SphericalMask):
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        """Constructs DeformedSphericalMask instance from a config object."""
+        """Constructs DeformedSphericalMask instance from a config object.
+
+        Raises:
+            ValueError: If `config.transform.sphere_radius` is not set in the config.
+        """
         if config.transform.sphere_radius is None:
             raise ValueError("Spherical mask parameters are not set in the config.")
         radius_range = (

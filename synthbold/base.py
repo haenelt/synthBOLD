@@ -1,8 +1,6 @@
 """Abstract base classes and mixins for the synthBOLD synthesis pipeline."""
 
-import importlib
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Self
@@ -11,8 +9,8 @@ import numpy as np
 import torch
 
 from synthbold.config import Config
-from synthbold.decorator import accept_unbatched, require_dim
-from synthbold.io import save_nifti, save_zarr
+from synthbold.decorator import log_call, to_device
+from synthbold.io import save_nifti, save_zarr, zarr_attributes
 
 __all__ = [
     "RandomGeneratorMixin",
@@ -20,7 +18,6 @@ __all__ = [
     "ObjectGeometry",
     "Model",
     "Transform",
-    "Pipeline",
 ]
 
 
@@ -91,6 +88,7 @@ class BaseGeometry(ABC, RandomGeneratorMixin):
         self.shape = tuple(shape)
         self.device = torch.device(device)
 
+    @log_call
     def __call__(self, n_sample: int, fname: Path | None = None) -> torch.Tensor:
         """Generate a batch of geometries and optionally save them to disk.
 
@@ -117,26 +115,22 @@ class BaseGeometry(ABC, RandomGeneratorMixin):
 
     @property
     def attrs(self) -> dict[str, Any]:
-        """Common metadata for ZARR/NIfTI storage."""
-        try:
-            pkg_name = self.__class__.__module__.split(".")[0]
-            version = importlib.metadata.version(pkg_name)
-        except importlib.metadata.PackageNotFoundError:
-            version = "unknown"
+        """Metadata for ZARR/NIfTI storage."""
         return {
-            "generator": self.__class__.__name__,
-            "created_at": datetime.now(UTC).isoformat(),
-            "version": version,
-            "axis_order": ("N", "X", "Y", "Z"),
-            "device": str(self.device),
+            **zarr_attributes(self.__class__.__name__, self.device, self.seed),
             "shape": self.shape,
             "dtype": str(self.dtype),
-            "seed": self.seed,
         }
 
     @abstractmethod
     def forward(self) -> torch.Tensor:
         """Generate random geometry labels."""
+        ...
+
+    @classmethod
+    @abstractmethod
+    def from_config(cls, config: Config) -> Self:
+        """Constructs a geometry instance from a configuration object."""
         ...
 
     @cached_property
@@ -182,6 +176,9 @@ class ObjectGeometry(BaseGeometry, ABC):
         allow_overlap: If False, objects are only added if they contribute new voxels.
         device: PyTorch device for tensor allocation and RNG.
         seed: Integer seed for reproducible output; ``None`` for random.
+
+    Raises:
+        ValueError: If neither or both of `num_objects` and `vf_range` are given.
 
     Notes:
         `num_objects` and `vf_range` are mutually exclusive. If `num_objects` is set,
@@ -266,6 +263,33 @@ class ObjectGeometry(BaseGeometry, ABC):
 
         return volume
 
+    def _random_point(self) -> torch.Tensor:
+        """Sample a random point uniformly inside the volume bounds.
+
+        Returns:
+            Tensor of shape ``(3,)`` with coordinates in voxel units.
+        """
+        return torch.stack(
+            [
+                torch.rand((), device=self.device, generator=self.generator)
+                * (self.shape[i] - 1)
+                for i in range(3)
+            ]
+        )
+
+    def _random_rotation(self) -> torch.Tensor:
+        """Sample a random proper rotation matrix via QR decomposition of a random
+        normal matrix.
+
+        Returns:
+            Tensor of shape ``(3, 3)`` with determinant +1.
+        """
+        rand_mat = torch.randn(3, 3, device=self.device, generator=self.generator)
+        Q, _ = torch.linalg.qr(rand_mat)
+        if torch.det(Q) < 0:
+            Q = -Q
+        return Q
+
     def _add_object(self, label: int, volume: torch.Tensor) -> tuple[torch.Tensor, int]:
         """Insert an object into a labeled 3D volume. A binary object mask is generated
         and written into the provided volume. Depending on the overlap setting, the
@@ -311,10 +335,23 @@ class Model(ABC, RandomGeneratorMixin):
     def __init__(self, *, device: str = "cpu", seed: int | None = None) -> None:
         super().__init__(seed=seed, device=device)
 
-    def __call__(self, data: torch.Tensor, fname: Path | None = None) -> torch.Tensor:
-        """Generate data from input tensor and optionally save generated data to disk in
-        ZARR or NIfTI format."""
-        result = self.forward(data)
+    @log_call
+    @to_device
+    def __call__(
+        self, data: torch.Tensor, fname: Path | None = None, **kwargs: Any
+    ) -> torch.Tensor:
+        """Move data to the target device, generate data via `forward`, and optionally
+        save the result to disk in ZARR or NIfTI format.
+
+        Args:
+            data: Input tensor passed to `forward`.
+            fname: File name for saving data to disk in ZARR or NIfTI format.
+            **kwargs: Additional keyword arguments passed to `forward`.
+
+        Returns:
+            Generated tensor, of the shape produced by `forward`.
+        """
+        result = self.forward(data, **kwargs)
 
         # save to disk
         if fname is not None and fname.suffix == ".zarr":
@@ -327,23 +364,17 @@ class Model(ABC, RandomGeneratorMixin):
     @property
     def attrs(self) -> dict[str, Any]:
         """Common metadata for ZARR/NIfTI storage."""
-        try:
-            pkg_name = self.__class__.__module__.split(".")[0]
-            version = importlib.metadata.version(pkg_name)
-        except importlib.metadata.PackageNotFoundError:
-            version = "unknown"
-        return {
-            "generator": self.__class__.__name__,
-            "created_at": datetime.now(UTC).isoformat(),
-            "version": version,
-            "axis_order": ("N", "X", "Y", "Z"),
-            "device": str(self.device),
-            "seed": self.seed,
-        }
+        return zarr_attributes(self.__class__.__name__, self.device, self.seed)
 
     @abstractmethod
     def forward(self, data: torch.Tensor) -> torch.Tensor:
-        """Generate data."""
+        """Generate data.
+
+        Note:
+            Call the instance (``model(data)``) instead of ``model.forward(data)``. In
+            this implementation, ``__call__`` transfers inputs to ``self.device``
+            before invoking ``forward``.
+        """
         ...
 
 
@@ -363,9 +394,17 @@ class Transform(ABC, RandomGeneratorMixin):
     def __init__(self, device: str | torch.device, seed: int | None = None) -> None:
         super().__init__(seed=seed, device=device)
 
+    @log_call
+    @to_device
     def __call__(self, data: torch.Tensor) -> torch.Tensor:
-        """Move data to the target device and apply the transform."""
-        data = data.to(self.device)
+        """Move data to the target device and apply the transform.
+
+        Args:
+            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+
+        Returns:
+            Transformed tensor of the same shape as `data`.
+        """
         result = self.forward(data)
         return result
 
@@ -380,10 +419,14 @@ class Transform(ABC, RandomGeneratorMixin):
         """Apply pre-sampled transform parameters to the input tensor."""
         ...
 
-    @require_dim(3, 4)
-    @accept_unbatched(dim=3)
     def forward(self, data: torch.Tensor) -> torch.Tensor:
-        """Generates transformation and applies to input tensor."""
+        """Generates transformation and applies to input tensor.
+
+        Note:
+            Call the instance (``transform(data)``) instead of
+            ``transform.forward(data)``. In this implementation, ``__call__``
+            transfers inputs to ``self.device`` before invoking ``forward``.
+        """
         transformation = self.sample(data.shape)
         return self.apply(data, transformation)
 
@@ -392,24 +435,3 @@ class Transform(ABC, RandomGeneratorMixin):
     def from_config(cls, config: Config) -> Self:
         """Constructs a Transform instance from a configuration object."""
         ...
-
-
-class Pipeline:
-    """Compose multiple tensor-to-tensor transforms in sequence.
-
-    This class chains multiple `Transform` instances together. When called, it passes
-    the input tensor through each transform in the order they were provided.
-
-    Args:
-        transforms: A list of `Transform` instances to be applied sequentially.
-    """
-
-    def __init__(self, transforms: list[Transform]) -> None:
-        self.transforms = transforms
-
-    def __call__(self, data: torch.Tensor) -> torch.Tensor:
-        """Apply pipeline to input tensor."""
-        for t in self.transforms:
-            result = t(data)
-            data = result
-        return data

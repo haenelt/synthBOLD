@@ -199,12 +199,3 @@ def test_from_config_device_and_seed() -> None:
     model = BackgroundModel.from_config(config)
     assert model.device == torch.device(config.device)
     assert model.seed == config.seed
-
-
-def test_from_config_pipeline_contains_randomflip() -> None:
-    config = Config()
-    model = BackgroundModel.from_config(config)
-    assert len(model.pipeline.transforms) == 1
-    flip = model.pipeline.transforms[0]
-    assert isinstance(flip, RandomFlip)
-    assert flip.flip_prob == config.transform.flip_prob
