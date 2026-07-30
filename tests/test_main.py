@@ -177,7 +177,7 @@ def test_standardize_leaves_other_fields_untouched() -> None:
     assert torch.equal(result.magnitude, sample.magnitude)
     assert torch.equal(result.phase, sample.phase)
     assert torch.equal(result.tissue, sample.tissue)
-    assert torch.equal(result.compartment, sample.compartment)
+    assert torch.equal(result.vf, sample.vf)
 
 
 # --- main ---

@@ -142,7 +142,7 @@ class SignalOutput(NamedTuple):
         magnitude: Magnitude image of shape ``(B, x, y, z)``.
         phase: Phase image of shape ``(B, x, y, z)``.
         tissue: Ground-truth tissue data of shape ``(B, x, y, z)``.
-        vessel: Vessel (or other perturber) labels of shape ``(B, x, y, z)``.
+        vf: Vessel (or other perturber) volume fractions of shape ``(B, x, y, z)``.
         mean: Mean of the ΔBz distribution of shape ``(B, x, y, z)``.
         variance: Variance of the ΔBz distribution of shape ``(B, x, y, z)``.
         skewness: Skewness of the ΔBz distribution of shape ``(B, x, y, z)``.
@@ -160,7 +160,7 @@ class SignalOutput(NamedTuple):
     magnitude: torch.Tensor
     phase: torch.Tensor
     tissue: torch.Tensor
-    vessel: torch.Tensor
+    vf: torch.Tensor
     mean: torch.Tensor
     variance: torch.Tensor
     skewness: torch.Tensor
@@ -358,7 +358,7 @@ class SignalModel(RandomGeneratorMixin):
             tissue.unsqueeze(1), kernel_size=factor, stride=factor
         ).squeeze(1)
         vessel[vessel > 1.0] = 1.0
-        vessel_map = F.avg_pool3d(
+        vf = F.avg_pool3d(
             vessel.unsqueeze(1), kernel_size=factor, stride=factor
         ).squeeze(1)
 
@@ -366,7 +366,7 @@ class SignalModel(RandomGeneratorMixin):
             magnitude=magnitude,
             phase=phase,
             tissue=tissue_map,
-            vessel=vessel_map,
+            vf=vf,
             mean=mean,
             variance=variance,
             skewness=skewness,

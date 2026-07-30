@@ -39,7 +39,7 @@ class SynthSample(NamedTuple):
         magnitude: Synthesized magnitude image of shape ``(B, x, y, z)``.
         phase: Synthesized phase image of shape ``(B, x, y, z)``.
         tissue: Ground-truth tissue map of shape ``(B, x, y, z)``.
-        compartment: Ground-truth compartment map of shape ``(B, x, y, z)``.
+        vf: Ground-truth vf map of shape ``(B, x, y, z)``.
         dbz_mean: Mean of the ΔBz distribution of shape ``(B, x, y, z)``.
         dbz_variance: Variance of the ΔBz distribution of shape ``(B, x, y, z)``.
         dbz_skewness: Skewness of the ΔBz distribution of shape ``(B, x, y, z)``.
@@ -49,7 +49,7 @@ class SynthSample(NamedTuple):
     magnitude: torch.Tensor
     phase: torch.Tensor
     tissue: torch.Tensor
-    compartment: torch.Tensor
+    vf: torch.Tensor
     dbz_mean: torch.Tensor
     dbz_variance: torch.Tensor
     dbz_skewness: torch.Tensor
@@ -80,13 +80,13 @@ class SynthPipeline(RandomGeneratorMixin):
     """End-to-end orchestration of geometry, model, and transform components into a
     single callable that synthesizes batches of BOLD samples.
 
-    On construction, label maps for cylinders (vessels), background shapes, and any
-    requested distractor geometries (spheres, tetrahedra, cubes, toroids) are
-    generated once and cached to ZARR under ``<dirname>/labels`` so that `__call__`
-    only ever samples from precomputed data. Each call draws a random batch of these
-    label maps, runs them through the background, foreground, distractor, and
-    perturbation models, and applies the signal model to produce magnitude/phase
-    images alongside ground-truth tissue and compartment maps.
+    On construction, label maps for cylinders, background shapes, and any requested
+    distractor geometries (spheres, tetrahedra, cubes, toroids) are generated once and
+    cached to ZARR under ``<dirname>/labels`` so that `__call__` only ever samples from
+    precomputed data. Each call draws a random batch of these label maps, runs them
+    through the background, foreground, distractor, and perturbation models, and applies
+    the signal model to produce magnitude/phase images alongside ground-truth tissue and
+    perturber volume fraction maps.
 
     Args:
         dirname: Root directory for cached label maps.
@@ -431,7 +431,7 @@ class SynthPipeline(RandomGeneratorMixin):
             magnitude=signal_output.magnitude,
             phase=signal_output.phase,
             tissue=signal_output.tissue,
-            compartment=signal_output.vessel,
+            vf=signal_output.vf,
             dbz_mean=signal_output.mean,
             dbz_variance=signal_output.variance,
             dbz_skewness=signal_output.skewness,

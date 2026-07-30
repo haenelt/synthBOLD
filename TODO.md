@@ -1,3 +1,2 @@
 - [ ] add TE dimension
-- [ ] ourput blood volume fraction
 - [ ] add temporal dimension (contrain susceptibility changes)

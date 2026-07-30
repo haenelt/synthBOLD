@@ -352,13 +352,13 @@ class CylinderTrees(ObjectGeometry):
         vf_range: tuple[float, float] | None = (0.05, 0.1),
         diameter_range: tuple[float, float] = (0.05, 2.0),
         allow_overlap: bool = True,
-        device: str = "cpu",
-        seed: int | None = None,
         segment_length_range: tuple[float, float] = (2.0, 6.0),
         branch_prob: float = 0.35,
         branch_angle_range: tuple[float, float] = (0.2618, 0.7854),
         max_depth: int = 6,
         min_radius_fraction: float = 0.15,
+        device: str = "cpu",
+        seed: int | None = None,
     ) -> None:
         super().__init__(
             shape=shape,

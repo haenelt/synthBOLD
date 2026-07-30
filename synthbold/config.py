@@ -14,7 +14,7 @@ from pydantic import (
     field_validator,
 )
 
-__all__ = ["Range", "GeometryParams", "PhysioParams", "Config"]
+__all__ = ["Range", "LogNormalRange", "GeometryParams", "PhysioParams", "Config"]
 
 
 class Range(BaseModel):
@@ -45,6 +45,13 @@ class Range(BaseModel):
         return v
 
 
+class LogNormalRange(BaseModel):
+    """Mean and standard deviation of a log-normal parameter distribution."""
+
+    mean: float = Field(description="Mean of the log-normal distribution.")
+    std: float = Field(description="Standard deviation of the log-normal distribution.")
+
+
 class GeometryParams(BaseModel):
     """Spatial parameters for input and output tensors.
 
@@ -66,6 +73,13 @@ class GeometryParams(BaseModel):
         tree_branch_angle: Range of parent-child branch angles in radians.
         tree_max_depth: Maximum number of branching generations below the root.
         tree_min_radius_fraction: Radius fraction below which a branch stops growing.
+        spline_nb_levels: Number of hierarchical levels in the spline vessel tree.
+        spline_tree_density: Log-normal distribution of trees per mm^3.
+        spline_tortuosity: Log-normal distribution of tortuosity (cord / length).
+        spline_radius: Log-normal distribution of the root radius in mm.
+        spline_radius_change: Log-normal distribution of radius variation along splines.
+        spline_nb_children: Log-normal distribution of the number of spline branches.
+        spline_radius_ratio: Log-normal distribution of the child/parent radius ratio.
         sphere_num: Number of generated spheres.
         sphere_vf: Volume fraction of spheres.
         sphere_diameter: Range of sphere diameters in mm.
@@ -86,7 +100,8 @@ class GeometryParams(BaseModel):
     """
 
     # general geometry
-    input_shape: tuple[int, int, int] = (128, 128, 128)
+    # input_shape: tuple[int, int, int] = (128, 128, 128)
+    input_shape: tuple[int, int, int] = (64, 64, 64)
     output_shape: tuple[int, int, int] = (32, 32, 32)
     fov: tuple[float, float, float] = (32.0, 32.0, 32.0)
     padding: int = 64
@@ -107,6 +122,15 @@ class GeometryParams(BaseModel):
     tree_branch_angle: Range = Range(min=0.2618, max=0.7854)
     tree_max_depth: int = 6
     tree_min_radius_fraction: float = 0.15
+
+    # object geometry: spline vessel trees
+    spline_nb_levels: int = 1
+    spline_tree_density: LogNormalRange = LogNormalRange(mean=0.01, std=0.01)
+    spline_tortuosity: LogNormalRange = LogNormalRange(mean=5.0, std=3.0)
+    spline_radius: LogNormalRange = LogNormalRange(mean=0.1, std=0.02)
+    spline_radius_change: LogNormalRange = LogNormalRange(mean=1.0, std=0.1)
+    spline_nb_children: LogNormalRange = LogNormalRange(mean=5.0, std=5.0)
+    spline_radius_ratio: LogNormalRange = LogNormalRange(mean=0.7, std=0.1)
 
     # object geometry: spheres
     sphere_num: int | None = None

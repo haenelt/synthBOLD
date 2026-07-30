@@ -365,7 +365,7 @@ def test_signal_forward_output_shapes() -> None:
     assert out.magnitude.shape == expected_shape
     assert out.phase.shape == expected_shape
     assert out.tissue.shape == expected_shape
-    assert out.vessel.shape == expected_shape
+    assert out.vf.shape == expected_shape
     assert out.mean.shape == expected_shape
     assert out.variance.shape == expected_shape
     assert out.skewness.shape == expected_shape

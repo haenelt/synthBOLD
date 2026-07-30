@@ -11,6 +11,7 @@ API
     api/models
     api/pipeline
     api/sampling
+    api/splines
     api/transforms
     api/io
     api/visualize

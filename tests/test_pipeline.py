@@ -135,7 +135,7 @@ def test_to_synth_sample_maps_fields_correctly(pipeline: SynthPipeline) -> None:
         magnitude=torch.tensor([1.0]),
         phase=torch.tensor([2.0]),
         tissue=torch.tensor([3.0]),
-        vessel=torch.tensor([4.0]),
+        vf=torch.tensor([4.0]),
         mean=torch.tensor([5.0]),
         variance=torch.tensor([6.0]),
         skewness=torch.tensor([7.0]),
@@ -147,7 +147,7 @@ def test_to_synth_sample_maps_fields_correctly(pipeline: SynthPipeline) -> None:
     assert sample.magnitude.item() == 1.0
     assert sample.phase.item() == 2.0
     assert sample.tissue.item() == 3.0
-    assert sample.compartment.item() == 4.0
+    assert sample.vf.item() == 4.0
     assert sample.dbz_mean.item() == 5.0
     assert sample.dbz_variance.item() == 6.0
     assert sample.dbz_skewness.item() == 7.0
@@ -187,7 +187,7 @@ def test_call_param_shapes(pipeline: SynthPipeline) -> None:
     assert params.chi.numel() > 0
 
 
-def test_call_distractor_compartment_covers_foreground_compartment(
+def test_call_distractor_vf_covers_foreground_vf(
     tmp_path: Path,
 ) -> None:
     # `distractor_data` is `merge_labels(foreground_data, distractor_shapes_data)`,
@@ -197,8 +197,8 @@ def test_call_distractor_compartment_covers_foreground_compartment(
     pipeline = _make_distractor_pipeline(tmp_path)
     sample, sample_distractor, params = pipeline(batch_size=BATCH_SIZE)
     assert sample_distractor is not None
-    foreground_occupied = sample.compartment > 0
-    distractor_occupied = sample_distractor.compartment > 0
+    foreground_occupied = sample.vf > 0
+    distractor_occupied = sample_distractor.vf > 0
     assert torch.all(distractor_occupied[foreground_occupied])
 
 
@@ -211,7 +211,7 @@ def test_call_reproducible_with_same_seed(tmp_path: Path) -> None:
     sample2, _, params2 = pipeline2(batch_size=BATCH_SIZE)
 
     assert torch.equal(sample1.magnitude, sample2.magnitude)
-    assert torch.equal(sample1.compartment, sample2.compartment)
+    assert torch.equal(sample1.vf, sample2.vf)
     assert torch.equal(params1.chi, params2.chi)
 
 

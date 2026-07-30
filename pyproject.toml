@@ -8,6 +8,25 @@ authors = [
 license = "GPL-3.0-or-later"
 readme = "README.md"
 requires-python = ">=3.13"
+
+keywords = [
+    "fmri",
+    "bold",
+    "simulation",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+
 dependencies = [
     "matplotlib>=3.10.9",
     "monai>=1.5.2",
@@ -20,6 +39,17 @@ dependencies = [
     "types-pyyaml>=6.0.12.20260408",
     "zarr>=3.1.6",
 ]
+
+[project.optional-dependencies]
+splines = [
+    "synthspline @ git+https://github.com/haenelt/synthspline.git@main",
+]
+
+[project.urls]
+Homepage = "https://github.com/haenelt/synthBOLD"
+Repository = "https://github.com/haenelt/synthBOLD"
+Documentation = "https://github.com/haenelt/synthBOLD"
+Issues = "https://github.com/haenelt/synthBOLD/issues"
 
 [dependency-groups]
 dev = [
