@@ -28,6 +28,11 @@ extensions: list[str] = [
 
 myst_enable_extensions = ["dollarmath"]  # render $...$ math in Markdown
 
+# Avoid duplicate object descriptions when autodoc introspects NamedTuple/dataclass
+# fields (via :undoc-members:) and Napoleon also emits `.. attribute::` blocks for
+# the same names from an "Attributes:" docstring section.
+napoleon_use_ivar = True
+
 templates_path: list[str] = ["_templates"]
 exclude_patterns: list[str] = []
 
