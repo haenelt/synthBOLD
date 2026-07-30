@@ -54,7 +54,7 @@ sample, _, params = pipeline(batch_size=4)
 ```
 
 ## Examples
-Example code can be found as Jupyter notebooks in the [`notebooks`](https://github.com/haenelt/synthBOLD/tree/main/notebooks) folder.
+Example code can be found as Jupyter notebooks in the [`notebooks`](https://github.com/haenelt/synthBOLD/tree/main/notebooks) subfolder.
 
 ## Contact
 If you have questions, problems or suggestions regarding the `synthbold` package, please feel free to contact [me](mailto:daniel.haenelt@gmail.com).
