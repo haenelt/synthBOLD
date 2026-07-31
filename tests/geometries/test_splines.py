@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from synthbold.config import Config, GeometryParams
-from synthbold.splines import SplineVessels
+from synthbold.geometries import SplineVessels
 
 SMALL_SHAPE = (8, 8, 8)
 SMALL_FOV = (4.0, 4.0, 4.0)

@@ -1,6 +1,6 @@
 [project]
 name = "synthbold"
-version = "1.0.0"
+version = "1.0.1"
 description = "Synthetic fMRI generator for BOLD simulations."
 authors = [
     { name = "Daniel Haenelt", email = "daniel.haenelt@gmail.com" }
