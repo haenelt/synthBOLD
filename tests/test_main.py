@@ -88,7 +88,7 @@ def test_get_parser_defaults() -> None:
     assert args.include_cubes is False
     assert args.include_toroids is False
     assert args.seed is None
-    assert args.log_level == "INFO"
+    assert args.verbose is False
 
 
 def test_get_parser_custom_values() -> None:
@@ -107,8 +107,7 @@ def test_get_parser_custom_values() -> None:
             "--include-cubes",
             "--seed",
             "3",
-            "--log-level",
-            "DEBUG",
+            "--verbose",
         ]
     )
     assert args.n_sample == 5
@@ -119,13 +118,7 @@ def test_get_parser_custom_values() -> None:
     assert args.include_tetrahedra is False
     assert args.include_toroids is False
     assert args.seed == 3
-    assert args.log_level == "DEBUG"
-
-
-def test_get_parser_invalid_log_level_raises() -> None:
-    parser = m.get_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(["--output", "out", "--log-level", "TRACE"])
+    assert args.verbose is True
 
 
 # --- setup_logging ---
@@ -205,8 +198,7 @@ def test_main_default_run_writes_expected_files(
             "2",
             "--batch-size",
             "1",
-            "--log-level",
-            "WARNING",
+            "--verbose",
         ],
     )
 
@@ -233,8 +225,7 @@ def test_main_with_distractor_flag_writes_distractor_files(
             "2",
             "--batch-size",
             "1",
-            "--log-level",
-            "WARNING",
+            "--verbose",
         ],
     )
 
@@ -262,8 +253,7 @@ def test_main_without_config_uses_default_config_constructor(
             "2",
             "--batch-size",
             "1",
-            "--log-level",
-            "WARNING",
+            "--verbose",
         ],
     )
 
@@ -292,8 +282,7 @@ def test_main_seed_cli_override_is_reproducible(
                 "2",
                 "--batch-size",
                 "1",
-                "--log-level",
-                "WARNING",
+                "--verbose",
             ],
         )
 
@@ -325,8 +314,7 @@ def test_main_seed_cli_override_changes_output(
                 "2",
                 "--batch-size",
                 "1",
-                "--log-level",
-                "WARNING",
+                "--verbose",
             ],
         )
 
