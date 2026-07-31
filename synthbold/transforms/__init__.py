@@ -3,6 +3,7 @@
 from synthbold.transforms.deform import CaliberDeformation, ElasticDeformation
 from synthbold.transforms.intensity import BiasField, GammaTransform
 from synthbold.transforms.noise import (
+    ComplexGaussianNoise,
     GaussianNoise,
     KSpaceSpikeNoise,
     MultiplicativeGammaNoise,
@@ -24,6 +25,7 @@ from synthbold.transforms.spatial import (
 __all__ = [
     "BiasField",
     "CaliberDeformation",
+    "ComplexGaussianNoise",
     "DeformedSphericalMask",
     "ElasticDeformation",
     "GammaTransform",

@@ -10,6 +10,7 @@ from synthbold.sampling import sample_uniform
 from synthbold.transforms.functional import sample_fractal_noise
 
 __all__ = [
+    "ComplexGaussianNoise",
     "GaussianNoise",
     "KSpaceSpikeNoise",
     "MultiplicativeGammaNoise",
@@ -21,10 +22,79 @@ __all__ = [
 ]
 
 
+class ComplexGaussianNoise(Transform):
+    """Applies Gaussian noise to the real and imaginary channels of a complex-valued
+    signal.
+
+    MRI thermal noise is intrinsically Gaussian in the real/imaginary (complex) domain.
+    Applying noise directly to the complex signal keeps magnitude and phase noise
+    correctly coupled, instead of modeling them as independent effects.
+
+    Args:
+        std_range: Minimum and maximum standard deviation of the underlying Gaussian
+            noise on the real and imaginary channels.
+        device: Target compute device ("cuda" or "cpu").
+        seed: Random seed for reproducibility.
+
+    Notes:
+        Operates on a complex-valued tensor, e.g. constructed via
+        `torch.polar(magnitude, phase)`.
+    """
+
+    def __init__(
+        self,
+        std_range: tuple[float, float],
+        device: str = "cpu",
+        seed: int | None = None,
+    ) -> None:
+        super().__init__(device=device, seed=seed)
+        self.std_range = std_range
+
+    def sample(self, shape: tuple[int, ...]) -> torch.Tensor:
+        """Computes complex-valued Gaussian noise for the given output shape
+        ``(B, X, Y, Z)``, with independent Gaussian real and imaginary channels."""
+        B, _, _, _ = shape
+
+        std = sample_uniform(
+            B, self.std_range[0], self.std_range[1], self.device, self.generator
+        ).view(B, 1, 1, 1)
+        real = torch.randn(shape, device=self.device, generator=self.generator)
+        imag = torch.randn(shape, device=self.device, generator=self.generator)
+        return torch.complex(real, imag) * std
+
+    @staticmethod
+    def apply(data: torch.Tensor, noise: torch.Tensor) -> torch.Tensor:
+        """Applies the noise to the complex-valued input tensor.
+
+        Args:
+            data: Complex-valued tensor of shape ``(B, X, Y, Z)``.
+            noise: Complex-valued noise tensor of the same shape.
+
+        Returns:
+            Tensor of the same shape with additive complex Gaussian noise.
+        """
+        return data + noise
+
+    @classmethod
+    def from_config(cls, config: Config) -> Self:
+        """Constructs ComplexGaussianNoise instance from a config object."""
+        std_range = (
+            config.transform.cnoise_std.min,
+            config.transform.cnoise_std.max,
+        )
+        return cls(
+            std_range=std_range,
+            device=config.device,
+            seed=config.seed,
+        )
+
+
 class GaussianNoise(Transform):
-    """Applies random Gaussian noise to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)`` tensors.
-    The distribution is defined based on randomly chosen `mu` and `std` that are sampled
-    from a uniform distribution with set boundaries.
+    """Applies random Gaussian noise.
+
+    The distribution is defined based on randomly
+    chosen `mu` and `std` that are sampled from a uniform distribution with set
+    boundaries.
 
     Args:
         mu_range: Minimum and maximum mean of the noise distribution.
@@ -63,7 +133,7 @@ class GaussianNoise(Transform):
         """Applies the noise to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             noise: Noise tensor of same shape.
 
         Returns:
@@ -98,8 +168,7 @@ class GaussianNoise(Transform):
 
 
 class KSpaceSpikeNoise(Transform):
-    """Applies random localized spikes in k-space to 3D ``(X, Y, Z)`` or 4D
-    ``(B, X, Y, Z)`` tensors.
+    """Applies random localized spikes in k-space.
 
     K-space spike artifacts (also known as RF interference or "corduroy" artifacts)
     arise from isolated erroneous samples in the acquired frequency-domain data and
@@ -184,7 +253,7 @@ class KSpaceSpikeNoise(Transform):
         """Applies localized k-space spikes to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             spikes: Spike tensor of shape ``(B, num_spikes, 4)`` as returned by
                 `sample`.
 
@@ -227,8 +296,7 @@ class KSpaceSpikeNoise(Transform):
 
 
 class MultiplicativeGammaNoise(Transform):
-    """Applies multiplicative gamma noise to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)``
-    tensors.
+    """Applies multiplicative gamma noise.
 
     Multiplicative gamma noise models `output = data * noise`, where `noise` is drawn
     from a Gamma distribution with mean 1, i.e. `Gamma(shape, rate)` with
@@ -277,7 +345,7 @@ class MultiplicativeGammaNoise(Transform):
         """Applies multiplicative gamma noise to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             concentration: Per-volume gamma shape parameter tensor broadcastable to
                 the shape of `data`.
 
@@ -303,7 +371,7 @@ class MultiplicativeGammaNoise(Transform):
 
 
 class NoncentralChiNoise(Transform):
-    """Applies noncentral chi noise to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)`` tensors.
+    """Applies noncentral chi noise.
 
     Noncentral chi noise generalizes Rician noise to magnitude images reconstructed
     from multiple channels via sum-of-squares, such as multi-coil MRI data. The
@@ -357,7 +425,7 @@ class NoncentralChiNoise(Transform):
         """Applies the noise to the input (magnitude) tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             noise: Noise tensor of shape ``(dof, *data.shape)`` holding the independent
                 Gaussian noise channels.
 
@@ -382,8 +450,7 @@ class NoncentralChiNoise(Transform):
 
 
 class PerlinNoise(Transform):
-    """Applies additive Perlin-like fractal noise to 3D ``(X, Y, Z)`` or 4D
-    ``(B, X, Y, Z)`` tensors.
+    """Applies additive Perlin-like fractal noise.
 
     Multiple octaves of smooth, low-frequency noise are summed with geometrically
     decaying amplitudes (persistence), yielding a self-similar fractal noise pattern
@@ -457,7 +524,7 @@ class PerlinNoise(Transform):
         """Applies the noise to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             noise: Noise tensor of same shape.
 
         Returns:
@@ -483,8 +550,7 @@ class PerlinNoise(Transform):
 
 
 class PoissonNoise(Transform):
-    """Applies signal-dependent Poisson noise to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)``
-    tensors.
+    """Applies signal-dependent Poisson noise.
 
     For each volume in the batch, a random `peak` count is drawn from a uniform
     distribution with set boundaries. The input is scaled by `peak`, Poisson-distributed
@@ -531,7 +597,7 @@ class PoissonNoise(Transform):
         """Applies signal-dependent Poisson noise to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             peak: Per-volume peak count tensor broadcastable to the shape of `data`.
 
         Returns:
@@ -555,7 +621,7 @@ class PoissonNoise(Transform):
 
 
 class RicianNoise(Transform):
-    """Applies Rician noise to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)`` tensors.
+    """Applies Rician noise.
 
     Rician noise models the magnitude of a complex signal whose real and imaginary
     parts are each corrupted by independent Gaussian noise, as is the case for MRI
@@ -595,7 +661,7 @@ class RicianNoise(Transform):
         """Applies the noise to the input (magnitude) tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             noise: Noise tensor of shape ``(2, *data.shape)`` holding the real and
                 imaginary Gaussian noise channels.
 
@@ -619,8 +685,7 @@ class RicianNoise(Transform):
 
 
 class SpeckleNoise(Transform):
-    """Applies multiplicative speckle noise to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)``
-    tensors.
+    """Applies multiplicative speckle noise.
 
     Speckle noise models multiplicative degradation as `output = data + data * noise`,
     where `noise` is drawn from a zero-mean Gaussian distribution. For each volume in
@@ -659,7 +724,7 @@ class SpeckleNoise(Transform):
         """Applies the noise to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             noise: Noise tensor of same shape.
 
         Returns:

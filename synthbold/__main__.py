@@ -4,11 +4,13 @@ import argparse
 import logging
 from pathlib import Path
 
+import torch
+
 from synthbold.config import Config
 from synthbold.io import save_batch
 from synthbold.pipeline import SynthPipeline, SynthSample
-from synthbold.transforms import GaussianNoise, RicianNoise
-from synthbold.transforms.functional import Pipeline, zscore
+from synthbold.transforms import ComplexGaussianNoise
+from synthbold.transforms.functional import zscore
 
 
 def setup_logging(level: int = logging.INFO) -> None:
@@ -125,30 +127,21 @@ def main() -> None:
     logger.info("Generating synthetic data.")
     sample, sample_distractor, _ = synth_pipeline(batch_size=args.batch_size)
 
-    # Apply random noise to synthesized data (RicianNoise to magnitude data and
-    # GaussianNoise to phase data)
+    # Apply random noise to synthesized data. MRI thermal noise is Gaussian in the
+    # real/imaginary channels, so magnitude and phase are reconstructed as a complex
+    # signal, perturbed there, and split back out.
     logger.info("Applying noise.")
-    magnitude_noise = Pipeline(
-        [RicianNoise.from_config(config)],
-        prob=config.transform_prob,
-        device=config.device,
-        seed=config.seed,
-    )
-    phase_noise = Pipeline(
-        [GaussianNoise.from_config(config)],
-        prob=config.transform_prob,
-        device=config.device,
-        seed=config.seed,
-    )
+    cnoise = ComplexGaussianNoise.from_config(config)
 
-    sample = sample._replace(
-        magnitude=magnitude_noise(sample.magnitude),
-        phase=phase_noise(sample.phase),
-    )
+    sample_noise = cnoise(torch.polar(sample.magnitude, sample.phase))
+    sample = sample._replace(magnitude=sample_noise.abs(), phase=sample_noise.angle())
     if sample_distractor is not None:
+        sample_distractor_noise = cnoise(
+            torch.polar(sample_distractor.magnitude, sample_distractor.phase)
+        )
         sample_distractor = sample_distractor._replace(
-            magnitude=magnitude_noise(sample_distractor.magnitude),
-            phase=phase_noise(sample_distractor.phase),
+            magnitude=sample_distractor_noise.abs(),
+            phase=sample_distractor_noise.angle(),
         )
 
     # Standardize

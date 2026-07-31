@@ -21,7 +21,7 @@ __all__ = [
 
 
 class RandomFlip(Transform):
-    """Applies spatial random flips to 3D or 4D tensors along one or multiple axes.
+    """Applies spatial random flips along one or multiple axes.
 
     Args:
         flip_prob: Probability of flipping each axis independently.
@@ -50,7 +50,7 @@ class RandomFlip(Transform):
         """Randomly flips the tensor along spatial axes.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             flip: 1D boolean indicating if single spatial dimensions will be flipped.
 
         Returns:
@@ -77,14 +77,13 @@ class RandomFlip(Transform):
 
 
 class GaussianSmoothing(Transform):
-    """Generates an Gaussian smoothing kernel and applies it to 3D ``(X, Y, Z)`` or 4D
-    ``(B, X, Y, Z)`` tensors.
+    """Generates an Gaussian smoothing kernel.
 
     This transform creates a Gaussian kernel and applies it to the 3D volume. Standard
     deviation is randomly chosen from a uniform distribution with set boundaries.
     Parameters can be set isotropic or anisotropic, i.e., with independent smoothing
-    parameters per axis. For 4D tensors, a randomly generated Gaussian kernel is created
-    for each 3D volume within the batch.
+    parameters per axis. A randomly generated Gaussian kernel is created for each 3D
+    volume within the batch.
 
     Args:
         sigma_range: Minimum and maximum standard deviation for Gaussian kernel.
@@ -181,7 +180,7 @@ class GaussianSmoothing(Transform):
         """Applies the spatial smoothing to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             kernel: Batch of 3D Gaussian kernels of same shape.
 
         Returns:
@@ -220,15 +219,14 @@ class GaussianSmoothing(Transform):
 
 
 class GaussianSharpening(Transform):
-    """Generates an unsharp-masking kernel and applies it to 3D ``(X, Y, Z)`` or 4D
-    ``(B, X, Y, Z)`` tensors.
+    """Generates an unsharp-masking kernel.
 
     This transform builds a Gaussian blur kernel and combines it with an identity
     kernel into a single unsharp-masking kernel, computing
     `output = (1 + amount) * data - amount * gaussian_blur(data)`. Standard deviation of
     the underlying blur and the sharpening amount are randomly chosen from uniform
-    distributions with set boundaries. For 4D tensors, an independently sampled kernel
-    is created for each 3D volume within the batch.
+    distributions with set boundaries. An independently sampled kernel is created for
+    each 3D volume within the batch.
 
     Args:
         sigma_range: Minimum and maximum standard deviation for the underlying
@@ -308,7 +306,7 @@ class GaussianSharpening(Transform):
         """Applies unsharp masking to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             kernel: Batch of 3D unsharp-masking kernels of same shape.
 
         Returns:
@@ -357,8 +355,7 @@ class GaussianSharpening(Transform):
 
 
 class GibbsRinging(Transform):
-    """Applies Gibbs ringing artifacts to 3D ``(X, Y, Z)`` or 4D ``(B, X, Y, Z)``
-    tensors.
+    """Applies Gibbs ringing artifacts.
 
     Gibbs ringing arises from the truncation of k-space data during MRI acquisition and
     produces oscillatory artifacts near sharp intensity transitions. This transform
@@ -411,7 +408,7 @@ class GibbsRinging(Transform):
         """Applies Gibbs ringing to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             cutoff: Per-volume normalized k-space cutoff radius, broadcastable to the
                 shape of `data`.
 
@@ -447,12 +444,12 @@ class GibbsRinging(Transform):
 
 
 class SphericalMask(Transform):
-    """Generates a spherical background mask and applies it to 3D or 4D tensors.
+    """Generates a spherical background mask.
 
     This transform creates a spherical mask with randomized center and radius, and
     multiples it with the input tensor. The central voxel can be any voxel within the
-    input tensor array. For 4D tensors, a randomly generated mask is created for each 3D
-    volume within the batch.
+    input tensor array. A randomly generated mask is created for each 3D volume within
+    the batch.
 
     Args:
         radius_range: Minimum and maximum radii for spherical mask.
@@ -546,7 +543,7 @@ class SphericalMask(Transform):
         """Applies background masks to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             mask: Mask tensor of same shape.
 
         Returns:
@@ -576,16 +573,14 @@ class SphericalMask(Transform):
 
 
 class DeformedSphericalMask(SphericalMask):
-    """Generates a deformed spherical background mask and applies it to 3D or 4D
-    tensors.
+    """Generates a deformed spherical background mask.
 
     This transform builds on :class:`SphericalMask` by perturbing the sphere radius
     with smooth, low-frequency noise, so that the resulting mask boundary is an
     irregular blob rather than a perfect sphere. The noise field is drawn at low
     resolution and trilinearly upsampled to the full volume size, then normalized per
     volume to `[-1, 1]` and scaled by `deform_amplitude` before perturbing the radius.
-    For 4D tensors, an independently deformed mask is created for each 3D volume within
-    the batch.
+    An independently deformed mask is created for each 3D volume within the batch.
 
     Args:
         radius_range: Minimum and maximum radii for the underlying sphere, before

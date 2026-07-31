@@ -13,7 +13,7 @@ __all__ = ["ElasticDeformation", "CaliberDeformation"]
 
 
 class ElasticDeformation(Transform):
-    """Applies a smooth random elastic deformation to 3D or 4D tensors)``.
+    """Applies a smooth random elastic deformation``.
 
     The transform generates a random noise field, smooths it with a Gaussian kernel to
     obtain a spatially smooth displacement field, and applies this displacement equally
@@ -71,7 +71,7 @@ class ElasticDeformation(Transform):
         """Randomly applies elastic transform to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             displacement: Displacement field of same shape.
 
         Returns:
@@ -99,7 +99,7 @@ class ElasticDeformation(Transform):
 
 
 class CaliberDeformation(Transform):
-    """Applies a random caliber transform to 3D or 4D tensors.
+    """Applies a random caliber transform.
 
     This transformation is designed to modify roughly cylindrical structures (e.g.
     vessels) to have smooth, spatially varying diameters. It works by generating a
@@ -159,7 +159,7 @@ class CaliberDeformation(Transform):
         """Randomly applies caliber transform to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             radius_field: Displacement field for caliber deformation of same shape.
 
         Returns:

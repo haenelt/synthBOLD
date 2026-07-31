@@ -3,6 +3,7 @@ import torch
 
 from synthbold.config import Config
 from synthbold.transforms.noise import (
+    ComplexGaussianNoise,
     GaussianNoise,
     KSpaceSpikeNoise,
     MultiplicativeGammaNoise,
@@ -14,6 +15,105 @@ from synthbold.transforms.noise import (
 )
 
 SMALL_SHAPE = (8, 8, 8)
+
+
+# --- ComplexGaussianNoise ---
+
+
+def test_complexgaussiannoise_init_stores_attrs() -> None:
+    cn = ComplexGaussianNoise(std_range=(0.1, 0.5), device="cpu", seed=0)
+    assert cn.std_range == (0.1, 0.5)
+    assert cn.device == torch.device("cpu")
+    assert cn.seed == 0
+
+
+def test_complexgaussiannoise_from_config_returns_instance() -> None:
+    config = Config()
+    cn = ComplexGaussianNoise.from_config(config)
+    assert isinstance(cn, ComplexGaussianNoise)
+    assert cn.std_range == (
+        config.transform.cnoise_std.min,
+        config.transform.cnoise_std.max,
+    )
+
+
+def test_complexgaussiannoise_sample_shape_batched() -> None:
+    cn = ComplexGaussianNoise(std_range=(0.0, 1.0), device="cpu", seed=0)
+    shape = (3, *SMALL_SHAPE)
+    noise = cn.sample(shape)
+    assert noise.shape == torch.Size(shape)
+    assert noise.is_complex()
+
+
+def test_complexgaussiannoise_sample_reproducible() -> None:
+    cn1 = ComplexGaussianNoise(std_range=(0.0, 1.0), device="cpu", seed=7)
+    cn2 = ComplexGaussianNoise(std_range=(0.0, 1.0), device="cpu", seed=7)
+    n1 = cn1.sample((2, *SMALL_SHAPE))
+    n2 = cn2.sample((2, *SMALL_SHAPE))
+    assert torch.equal(n1, n2)
+
+
+def test_complexgaussiannoise_sample_different_seeds_differ() -> None:
+    cn1 = ComplexGaussianNoise(std_range=(0.0, 1.0), device="cpu", seed=1)
+    cn2 = ComplexGaussianNoise(std_range=(0.0, 1.0), device="cpu", seed=2)
+    n1 = cn1.sample((2, *SMALL_SHAPE))
+    n2 = cn2.sample((2, *SMALL_SHAPE))
+    assert not torch.equal(n1, n2)
+
+
+def test_complexgaussiannoise_apply_zero_noise_is_noop() -> None:
+    magnitude = torch.rand(2, *SMALL_SHAPE)
+    phase = torch.rand(2, *SMALL_SHAPE) * 2 * torch.pi - torch.pi
+    data = torch.polar(magnitude, phase)
+    noise = torch.zeros(2, *SMALL_SHAPE, dtype=data.dtype)
+    out = ComplexGaussianNoise.apply(data, noise)
+    assert torch.allclose(out, data, atol=1e-6)
+
+
+def test_complexgaussiannoise_apply_preserves_shape() -> None:
+    magnitude = torch.rand(3, *SMALL_SHAPE)
+    phase = torch.rand(3, *SMALL_SHAPE)
+    data = torch.polar(magnitude, phase)
+    noise = torch.complex(torch.randn(3, *SMALL_SHAPE), torch.randn(3, *SMALL_SHAPE))
+    out = ComplexGaussianNoise.apply(data, noise)
+    assert out.shape == data.shape
+
+
+def test_complexgaussiannoise_apply_nonnegative_magnitude() -> None:
+    magnitude = torch.rand(2, *SMALL_SHAPE)
+    phase = torch.rand(2, *SMALL_SHAPE)
+    data = torch.polar(magnitude, phase)
+    noise = (
+        torch.complex(torch.randn(2, *SMALL_SHAPE), torch.randn(2, *SMALL_SHAPE)) * 5.0
+    )
+    out = ComplexGaussianNoise.apply(data, noise)
+    assert torch.all(out.abs() >= 0.0)
+
+
+def test_complexgaussiannoise_apply_matches_riciannoise_magnitude() -> None:
+    # With zero input phase, the imaginary channel starts at 0 and the noisy
+    # magnitude reduces exactly to the RicianNoise formula.
+    magnitude = torch.rand(2, *SMALL_SHAPE)
+    phase = torch.zeros(2, *SMALL_SHAPE)
+    data = torch.polar(magnitude, phase)
+    real_noise = torch.randn(2, *SMALL_SHAPE)
+    imag_noise = torch.randn(2, *SMALL_SHAPE)
+    noise = torch.complex(real_noise, imag_noise)
+    out = ComplexGaussianNoise.apply(data, noise)
+    expected = RicianNoise.apply(magnitude, torch.stack((real_noise, imag_noise)))
+    assert torch.allclose(out.abs(), expected, atol=1e-5)
+
+
+def test_complexgaussiannoise_call_shapes_and_range() -> None:
+    cn = ComplexGaussianNoise(std_range=(0.0, 1.0), device="cpu", seed=0)
+    magnitude = torch.rand(3, *SMALL_SHAPE)
+    phase = torch.rand(3, *SMALL_SHAPE) * 2 * torch.pi - torch.pi
+    data = torch.polar(magnitude, phase)
+    out = cn(data)
+    assert out.shape == data.shape
+    assert torch.all(out.abs() >= 0.0)
+    assert torch.all(out.angle() >= -torch.pi - 1e-5)
+    assert torch.all(out.angle() <= torch.pi + 1e-5)
 
 
 # --- GaussianNoise ---

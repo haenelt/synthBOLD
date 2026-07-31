@@ -236,6 +236,7 @@ class TransformParams(BaseModel):
         bias_lowres_shape: Shape of noise map to generate a smooth bias field.
         bias_amplitude: Range of scaling factors for bias field variation.
         gamma_exponent: Range of gamma exponents for gamma intensity transform.
+        cnoise_std: Range of standard deviations for complex-domain Gaussian noise.
         gnoise_mu: Range of the gaussian noise distribution means.
         gnoise_std: Range of the gaussian noise distribution standard deviations.
         spike_num: Minimum and maximum number of localized k-space spikes.
@@ -274,6 +275,9 @@ class TransformParams(BaseModel):
 
     # transform: GammaTransform
     gamma_exponent: Range = Range(min=0.5, max=2.0)
+
+    # transform: ComplexGaussianNoise
+    cnoise_std: Range = Range(min=0.0, max=2.0)
 
     # transform: GaussianNoise
     gnoise_mu: Range = Range(min=-0.2, max=0.2)

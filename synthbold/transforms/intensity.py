@@ -13,13 +13,12 @@ __all__ = ["BiasField", "GammaTransform"]
 
 
 class BiasField(Transform):
-    """Generates a smooth multiplicative bias field and applies it to a 3D ``(X, Y, Z)``
-    or 4D ``(B, X, Y, Z)`` tensor.
+    """Generates a smooth multiplicative bias field.
 
     This transform creates a random low-resolution field, upsamples it to the target
     shape, applies an exponential to ensure positivity, and multiplies it with the input
-    tensor. For 4D tensors, a randomly generated bias field is created for each 3D
-    volume within the batch.
+    tensor. A randomly generated bias field is created for each 3D volume within the
+    batch.
 
     Args:
         lowres_shape: The matrix size of the low-resolution noise map to generate a
@@ -76,7 +75,7 @@ class BiasField(Transform):
         """Applies the smooth bias field to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             bias: Bias field tensor of same shape.
 
         Returns:
@@ -100,8 +99,7 @@ class BiasField(Transform):
 
 
 class GammaTransform(Transform):
-    """Applies a random gamma intensity transform to 3D ``(X, Y, Z)`` or 4D
-    ``(B, X, Y, Z)`` tensors.
+    """Applies a random gamma intensity transform.
 
     For each volume in the batch, a random `gamma` exponent is sampled from a uniform
     distribution with set boundaries. The volume is rescaled to ``[0, 1]``, raised to
@@ -144,7 +142,7 @@ class GammaTransform(Transform):
         """Applies the gamma transform to the input tensor.
 
         Args:
-            data: Input tensor of shape ``(X, Y, Z)`` or ``(B, X, Y, Z)``.
+            data: Input tensor of shape ``(B, X, Y, Z)``.
             gamma: Per-volume gamma exponent tensor broadcastable to the shape of
                 `data`.
 
